@@ -71,7 +71,8 @@ def act(self, game_state: dict) -> str:
         #    leads to an array
         # 2. weights \beta_a are stored in the same order as defined in ACTIONS 
         state_features = state_to_features(game_state)
-        Q_sa = np.argmax(np.matmul(state_features.T, np.asarray(self.action_models_weight)))
+        weights = np.array(list(self.action_models_weight.values)).T
+        Q_sa = np.argmax(np.matmul(state_features.T, weights))
         argmax_Q = ACTIONS[np.argmax(Q_sa)]
 
         if EPSILON_STRATEGY == "GREEDY_DECAY_SOFTMAX":
