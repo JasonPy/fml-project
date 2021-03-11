@@ -65,16 +65,82 @@ def state_to_features(game_state: dict) -> np.array:
     what it contains.
 
     :param game_state:  A dictionary describing the current game board.
-    :return: np.array
+    :return X: A np.array of features
     """
+
     # This is the dict before the game begins and after it ends
     if game_state is None:
         return None
+    
+    # feature array
+    X = []
 
-    # For example, you could construct several channels of equal shape, ...
-    channels = []
-    channels.append(...)
-    # concatenate them as a feature tensor (they must have the same shape), ...
-    stacked_channels = np.stack(channels)
-    # and return them as a vector
-    return stacked_channels.reshape(-1)
+    ### access game_state and retrieve information
+
+    # max distance equals length of diagonal of field
+    max_dist = np.linalg.norm([1, 1] - game_state.field.size)
+
+    field = game_state.field.T
+    bombs = np.asarray(game_state.bombs)
+    pos = np.asarray(game_state.self[3])
+    coins = np.asarray(game_state.coins)
+    others = game_state.others
+
+    ### distance to bombs 
+    bomb_ranges = [max_dist + 1] * 4
+    if bombs.size > 0
+        bomb_dists = np.linalg.norm(bombs[:, 0] - pos, axis = 1)
+        bomb_ranges[0: bomb_dists.size] = np.sort(bomb_dists)
+    X.append(bomb_ranges)
+
+    ### danger zone to determine if agent would get hit by bombs
+    danger_zone = []
+    for b in bombs:
+        if np.abs(pos[0] - b[0][0]) <= 3 or np.abs(pos[1] - b[0][1]) <= 3:
+            if pos[0] == b[0][0]:  
+                y_pos = pos[1] - b[0][1]
+                if y_pos > 0:
+                    if np.sum(np.where(field[pos[0], b[0][1]:pos[1]] == -1)) == 0:
+                        danger_zone.append(1 / b[1])
+                    else:
+                        danger_zone.append(0)
+                else:
+                    if np.sum(np.where(field[pos[0], pos[1]:b[0][1]] == -1)) == 0:
+                        danger_zone.append(1 / b[1])
+                    else:
+                        danger_zone.append(0)
+            elif pos[1] == b[0][1]:  
+                x_pos = pos[0] - b[0][0]
+                if x_pos > 0:
+                    if np.sum(np.where(field[b[0][0]:pos[0], pos[1]] == -1)) == 0:
+                        danger_zone.append(1 / b[1])
+                    else:
+                        danger_zone.append(0)
+                else:
+                    if np.sum(np.where(pos[0]:field[b[0][0], pos[1]] == -1)) == 0:
+                        danger_zone.append(1 / b[1])
+                    else:
+                        danger_zone.append(0)
+        else:
+            danger_zone.append(0)  
+    X.append(np.sort(danger_zone))             
+
+
+    ### distance to nearest crate
+    crate_indices = np.argwhere(field == 1)
+    if crate_indices.size > 0:
+        crate_dists = np.linalg.norm(crate_indices - pos, axis = 1)
+        X.append(np.min(crate_dists)[0])
+    else:
+        X.append(max_dist + 1) # set to max dist
+
+    ### distance to nearest coin
+    if coins.size > 0:
+        # get gradient magnitude to nearest coin
+        coin_dists = np.linalg.norm(coins - pos, axis = 1)
+        X.append(np.min(coin_dists)[0])
+    else:
+        X.append(max_dist + 1) # set to max dist
+
+    
+    return np.array(X)
