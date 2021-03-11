@@ -142,5 +142,31 @@ def state_to_features(game_state: dict) -> np.array:
     else:
         X.append(max_dist + 1) # set to max dist
 
+
+    ### prevent invalid actions
+    #tile to the right
+    if pos[0] + 1 > field.size[0]]:
+        X.append(?)
+    else:
+        X.append(field[pos[0] + 1, pos[1]])
+
+    #tile to the left
+    if pos[0] - 1 < field.size[0]]:
+        X.append(?)
+    else:
+         X.append(field[pos[0] - 1, pos[1]])
+    
+    #tile below
+    if pos[1] + 1 > field.size[1]]:
+        X.append(?)
+    else:
+         X.append(field[pos[0], pos[1] + 1])
+
+    #tile above
+    if pos[1] - 1 < field.size[1]]:
+        X.append(?)
+    else:
+         X.append(field[pos[0], pos[1] - 1])
+    
     
     return np.array(X)
