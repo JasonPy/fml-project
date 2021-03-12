@@ -138,14 +138,14 @@ def state_to_features(game_state: dict) -> np.array:
 
     ### distance to others
     others_ranges = [max_dist + 1] * 4
-    if others.shape[0] > 0
+    if others.shape[0] > 0:
         others_dists = np.linalg.norm(others[:, 3] - pos, axis = 1)
         others_ranges[0: others_dists.size] = np.sort(others_dists)
     X.append(others_ranges)
 
     ### distance to bombs 
     bomb_ranges = [max_dist + 1] * 4
-    if bombs.size > 0
+    if bombs.size > 0:
         bomb_dists = np.linalg.norm(bombs[:, 0] - pos, axis = 1)
         bomb_ranges[0: bomb_dists.size] = np.sort(bomb_dists)
     X.append(bomb_ranges)
@@ -175,7 +175,7 @@ def state_to_features(game_state: dict) -> np.array:
                     else:
                         danger_zone.append(0)
                 else:
-                    if np.sum(np.where(pos[0]:field[b[0][0], pos[1]] == -1)) == 0:
+                    if np.sum(np.where(field[pos[0]:b[0][0], pos[1]] == -1)) == 0:
                         danger_zone.append(1 / b[1])
                     else:
                         danger_zone.append(0)
@@ -204,25 +204,25 @@ def state_to_features(game_state: dict) -> np.array:
 
     ### prevent invalid actions
     #tile to the right
-    if pos[0] + 1 > field.size[0]]:
+    if pos[0] + 1 > field.size[0]:
         X.append(-1)
     else:
         X.append(field[pos[0] + 1, pos[1]])
 
     #tile to the left
-    if pos[0] - 1 < field.size[0]]:
+    if pos[0] - 1 < field.size[0]:
         X.append(-1)
     else:
          X.append(field[pos[0] - 1, pos[1]])
     
     #tile below
-    if pos[1] + 1 > field.size[1]]:
+    if pos[1] + 1 > field.size[1]:
         X.append(-1)
     else:
          X.append(field[pos[0], pos[1] + 1])
 
     #tile above
-    if pos[1] - 1 < field.size[1]]:
+    if pos[1] - 1 < field.size[1]:
         X.append(-1)
     else:
          X.append(field[pos[0], pos[1] - 1])
@@ -230,25 +230,25 @@ def state_to_features(game_state: dict) -> np.array:
     
     ### check explosion map
     #tile to the right
-    if pos[0] + 1 > field.size[0]]:
+    if pos[0] + 1 > field.size[0]:
         X.append(0)
     else:
         X.append(explosion_map[pos[0] + 1, pos[1]])
 
     #tile to the left
-    if pos[0] - 1 < field.size[0]]:
+    if pos[0] - 1 < field.size[0]:
         X.append(-1)
     else:
          X.append(explosion_map[pos[0] - 1, pos[1]])
     
     #tile below
-    if pos[1] + 1 > field.size[1]]:
+    if pos[1] + 1 > field.size[1]:
         X.append(-1)
     else:
          X.append(explosion_map[pos[0], pos[1] + 1])
 
     #tile above
-    if pos[1] - 1 < explosion_map.size[1]]:
+    if pos[1] - 1 < explosion_map.size[1]:
         X.append(-1)
     else:
          X.append(explosion_map[pos[0], pos[1] - 1])

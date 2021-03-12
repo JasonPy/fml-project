@@ -1,5 +1,6 @@
 import pickle
 import random
+import numpy as np
 from collections import namedtuple, deque
 from typing import List
 
@@ -40,7 +41,7 @@ def setup_training(self):
     # intialize for each action a model
     self.action_models_weight = {}
     for actions in ACTIONS:
-        action_models_weight[actions] = 0
+        self.action_models_weight[actions] = 0
 
 
 def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_state: dict, events: List[str]):
@@ -73,9 +74,7 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
         old_game_state), self_action, state_to_features(new_game_state), reward_from_events(self, events)))
 
 
-def end_of_round(self, last_gama=np.array([1, 2])
-                 print(a)
-                 e_state: dict, last_action: str, events: List[str]):
+def end_of_round(self, last_game_state: dict, last_action: str, events: List[str]):
     """
     Called at the end of each game or when the agent died to hand out final rewards.
 
@@ -138,7 +137,7 @@ def reward_from_events(self, events: List[str]) -> int:
 
 def get_custom_events(event_map) -> List[str]:
     # TODO: more generic by using state to get amount of players
-    custom_events = List[str]
+    custom_events = []
 
     if event_map[e.KILLED_OPPONENT] == 2:
         custom_events.append(DOUBLE_KILL)
@@ -153,22 +152,22 @@ def stochastic_gradient_descent(self, learning_rate=0.0001, epochs=1000):
     actionFeatureMap, actionRewardMap = action_maps_initilization(self)
 
     # train for each action a model with SDG
-    for action, value in actionFeatureMap.items:
+    for action, value in actionFeatureMap.items():
         X = np.array(value)
         y_t = np.array(actionRewardMap[action])
 
         lin_reg = make_pipeline(
-            StandardScale(), SGDRegressor(max_iter=epochs, alpha=learning_rate, tol=1e-3, coef_init=self.action_models_weight[action], warm_start=True))
+            StandardScaler(), SGDRegressor(max_iter=epochs, alpha=learning_rate, tol=1e-3, coef_init=self.action_models_weight[action], warm_start=True))
 
         # lin_reg.partial_fit(X, y_t)
         lin_reg.fit(X, y_t)
-        action_models_weight[action] = lin_reg.coef_
+        self.action_models_weight[action] = lin_reg.coef_
 
 
 def batch_gradient_descent(self, learning_rate=0.0001, epochs=1000, batch_size = 64):
-     actionFeatureMap, actionRewardMap = action_maps_initilization(self)
+    actionFeatureMap, actionRewardMap = action_maps_initilization(self)
 
-    for action, value in actionFeatureMap.items:
+    for action, value in actionFeatureMap.items():
         X = np.array(value)
         
         batch_indices = random.sample(range(0,len(X)), batch_size)
@@ -185,19 +184,19 @@ def batch_gradient_descent(self, learning_rate=0.0001, epochs=1000, batch_size =
         beta = self.action_models[action]
       
         for i in epochs:
-            y_p = batch*beta
+            y_pred = batch*beta
             # calculate the derivative of the loss function with respect to beta
             D_beta = (-2/batch_size) * sum((batch.T * (y_t - y_pred)), axis=0)
 
             # update the weights
-            beta -= learning_rate * D_m
+            beta -= learning_rate * D_beta
 
         self.action_models[action] = beta
 
 def gradient_descent(self, learning_rate=0.0001, epochs=1000):
     actionFeatureMap, actionRewardMap = action_maps_initilization(self)
 
-    for action, value in actionFeatureMap.items:
+    for action, value in actionFeatureMap.items():
         X = np.array(value)
 
         # centralize and standardize the features X
@@ -210,12 +209,12 @@ def gradient_descent(self, learning_rate=0.0001, epochs=1000):
         n = len(X)
 
         for i in epochs:
-            y_p = x*beta
+            y_pred = X*beta
             # calculate the derivative of the loss function with respect to beta
             D_beta = (-2/n) * sum((X.T * (y_t - y_pred)), axis=0)
 
             # update the weights
-            beta -= learning_rate * D_m
+            beta -= learning_rate * D_beta
 
         self.action_models[action] = beta
 
