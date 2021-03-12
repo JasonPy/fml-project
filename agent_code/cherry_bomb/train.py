@@ -17,7 +17,7 @@ Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
 
 # Hyper parameters -- DO modify
-TRANSITION_HISTORY_SIZE = 3  # keep only ... last transitions
+TRANSITION_HISTORY_SIZE = 400  # keep only ... last transitions
 RECORD_ENEMY_TRANSITIONS = 1.0  # record enemy transitions with probability ...
 
 # Custom events
@@ -36,12 +36,14 @@ def setup_training(self):
     # Example: Setup an array that will note transition tuples
     # (s, a, r, s')
     self.transitions = deque(maxlen=TRANSITION_HISTORY_SIZE)
-    self.event_map = {}
+    self.event_map = dict.fromkeys([e.KILLED_OPPONENT,e.COIN_COLLECTED], 0)
 
     # intialize for each action a model
     self.action_models_weight = {}
-    for actions in ACTIONS:
-        self.action_models_weight[actions] = 0
+
+    for i in range(len(ACTIONS)):
+        self.action_models_weight[ACTIONS[i]] = self.model[:, i]
+    print(self.action_models_weight)    
 
 
 def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_state: dict, events: List[str]):
@@ -65,9 +67,12 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
         f'Encountered game event(s) {", ".join(map(repr, events))} in step {new_game_state["step"]}')
 
     # Add custom events
-    for ev in events:
-        self.event_map[ev] += 1
-    events.concatenate(get_custom_events(self.event_map))
+    print(events)
+    if len(events) > 0:
+        for ev in events:
+            if ev in self.event_map:
+                self.event_map[ev] += 1
+        events = events + get_custom_events(self.event_map)
 
     # state_to_features is defined in callbacks.py
     self.transitions.append(Transition(state_to_features(
@@ -90,6 +95,12 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
         f'Encountered event(s) {", ".join(map(repr, events))} in final step')
     self.transitions.append(Transition(state_to_features(
         last_game_state), last_action, None, reward_from_events(self, events)))
+
+    stochastic_gradient_descent(self, learning_rate=0.0001, epochs=1000)
+    
+    for i in range(len(ACTIONS)):
+        self.model[:, i] = self.action_models_weight[ACTIONS[i]]
+    # print(self.action_models_weight)
 
     # Store the model
     with open("my-saved-model.pt", "wb") as file:
@@ -138,6 +149,7 @@ def reward_from_events(self, events: List[str]) -> int:
 def get_custom_events(event_map) -> List[str]:
     # TODO: more generic by using state to get amount of players
     custom_events = []
+    print(event_map)
 
     if event_map[e.KILLED_OPPONENT] == 2:
         custom_events.append(DOUBLE_KILL)
@@ -153,15 +165,20 @@ def stochastic_gradient_descent(self, learning_rate=0.0001, epochs=1000):
 
     # train for each action a model with SDG
     for action, value in actionFeatureMap.items():
-        X = np.array(value)
-        y_t = np.array(actionRewardMap[action])
+        if len(value) > 0:
 
-        lin_reg = make_pipeline(
-            StandardScaler(), SGDRegressor(max_iter=epochs, alpha=learning_rate, tol=1e-3, coef_init=self.action_models_weight[action], warm_start=True))
+            X = np.array(value)
+            y_t = np.array(actionRewardMap[action])
 
-        # lin_reg.partial_fit(X, y_t)
-        lin_reg.fit(X, y_t)
-        self.action_models_weight[action] = lin_reg.coef_
+            scaler = StandardScaler()
+            print(y_t.shape, y_t)
+            print(X.shape, X)
+            # X = scaler.fit_transform(X)
+
+            lin_reg = SGDRegressor(max_iter=epochs, alpha=learning_rate, tol=1e-3, warm_start=True)
+            lin_reg.fit(X, y_t, coef_init=self.action_models_weight[action])
+
+            self.action_models_weight[action] = lin_reg.coef_        
 
 
 def batch_gradient_descent(self, learning_rate=0.0001, epochs=1000, batch_size = 64):
@@ -223,8 +240,13 @@ def action_maps_initilization(self):
     actionFeatureMap = {}
     actionRewardMap = {}
 
+    for a in ACTIONS:
+        actionFeatureMap[a] = []
+        actionRewardMap[a] = []
+
     # fill map with actions as key and their corresponding features/rewards as value
     for transition in self.transitions:
+        print(transition)
         actionFeatureMap[transition.action].append(transition.state)
         actionRewardMap[transition.action].append(transition.reward)
 
