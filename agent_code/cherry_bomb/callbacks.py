@@ -132,6 +132,8 @@ def state_to_features(game_state: dict) -> np.array:
     pos = np.asarray(game_state.self[3])
     coins = np.asarray(game_state.coins)
     others = np.asarray(game_state.others)
+    explosion_map = game_state.explosion_map
+
 
 
     ### distance to others
@@ -140,8 +142,6 @@ def state_to_features(game_state: dict) -> np.array:
         others_dists = np.linalg.norm(others[:, 3] - pos, axis = 1)
         others_ranges[0: others_dists.size] = np.sort(others_dists)
     X.append(others_ranges)
-    explosion_map = game_state.explosion_map
-
 
     ### distance to bombs 
     bomb_ranges = [max_dist + 1] * 4
