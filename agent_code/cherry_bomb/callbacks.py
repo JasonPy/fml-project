@@ -85,6 +85,7 @@ def state_to_features(game_state: dict) -> np.array:
     pos = np.asarray(game_state.self[3])
     coins = np.asarray(game_state.coins)
     others = game_state.others
+    explosion_map = game_state.explosion_map
 
     ### distance to bombs 
     bomb_ranges = [max_dist + 1] * 4
@@ -146,27 +147,53 @@ def state_to_features(game_state: dict) -> np.array:
     ### prevent invalid actions
     #tile to the right
     if pos[0] + 1 > field.size[0]]:
-        X.append(?)
+        X.append(-1)
     else:
         X.append(field[pos[0] + 1, pos[1]])
 
     #tile to the left
     if pos[0] - 1 < field.size[0]]:
-        X.append(?)
+        X.append(-1)
     else:
          X.append(field[pos[0] - 1, pos[1]])
     
     #tile below
     if pos[1] + 1 > field.size[1]]:
-        X.append(?)
+        X.append(-1)
     else:
          X.append(field[pos[0], pos[1] + 1])
 
     #tile above
     if pos[1] - 1 < field.size[1]]:
-        X.append(?)
+        X.append(-1)
     else:
          X.append(field[pos[0], pos[1] - 1])
+    
+    
+    ### check explosion map
+    #tile to the right
+    if pos[0] + 1 > field.size[0]]:
+        X.append(0)
+    else:
+        X.append(explosion_map[pos[0] + 1, pos[1]])
+
+    #tile to the left
+    if pos[0] - 1 < field.size[0]]:
+        X.append(-1)
+    else:
+         X.append(explosion_map[pos[0] - 1, pos[1]])
+    
+    #tile below
+    if pos[1] + 1 > field.size[1]]:
+        X.append(-1)
+    else:
+         X.append(explosion_map[pos[0], pos[1] + 1])
+
+    #tile above
+    if pos[1] - 1 < explosion_map.size[1]]:
+        X.append(-1)
+    else:
+         X.append(explosion_map[pos[0], pos[1] - 1])
     
     
     return np.array(X)
