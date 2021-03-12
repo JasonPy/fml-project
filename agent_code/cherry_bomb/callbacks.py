@@ -72,7 +72,7 @@ def state_to_features(game_state: dict) -> np.array:
     if game_state is None:
         return None
     
-    # feature array
+    # feature vector (initially a list)
     X = []
 
     ### access game_state and retrieve information
@@ -80,11 +80,22 @@ def state_to_features(game_state: dict) -> np.array:
     # max distance equals length of diagonal of field
     max_dist = np.linalg.norm([1, 1] - game_state.field.size)
 
+    rnd = game_state.round
+    step = game_state.step
     field = game_state.field.T
     bombs = np.asarray(game_state.bombs)
     pos = np.asarray(game_state.self[3])
     coins = np.asarray(game_state.coins)
-    others = game_state.others
+    others = np.asarray(game_state.others)
+
+
+    ### distance to others
+    others_ranges = [max_dist + 1] * 4
+    if others.shape[0] > 0
+        others_dists = np.linalg.norm(others[:, 3] - pos, axis = 1)
+        others_ranges[0: others_dists.size] = np.sort(others_dists)
+    X.append(others_ranges)
+
 
     ### distance to bombs 
     bomb_ranges = [max_dist + 1] * 4
@@ -92,6 +103,7 @@ def state_to_features(game_state: dict) -> np.array:
         bomb_dists = np.linalg.norm(bombs[:, 0] - pos, axis = 1)
         bomb_ranges[0: bomb_dists.size] = np.sort(bomb_dists)
     X.append(bomb_ranges)
+
 
     ### danger zone to determine if agent would get hit by bombs
     danger_zone = []
@@ -123,7 +135,7 @@ def state_to_features(game_state: dict) -> np.array:
                         danger_zone.append(0)
         else:
             danger_zone.append(0)  
-    X.append(np.sort(danger_zone))             
+    X.append(np.sort(danger_zone))     
 
 
     ### distance to nearest crate
@@ -134,6 +146,7 @@ def state_to_features(game_state: dict) -> np.array:
     else:
         X.append(max_dist + 1) # set to max dist
 
+
     ### distance to nearest coin
     if coins.size > 0:
         # get gradient magnitude to nearest coin
@@ -142,5 +155,8 @@ def state_to_features(game_state: dict) -> np.array:
     else:
         X.append(max_dist + 1) # set to max dist
 
-    
+
+    ### agressiveness 
+    X.append(step * others.shape[0])
+
     return np.array(X)
