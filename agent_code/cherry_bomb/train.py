@@ -28,7 +28,7 @@ Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
 
 # Hyper parameters -- DO modify
-TRANSITION_HISTORY_SIZE = 3  # keep only ... last transitions
+TRANSITION_HISTORY_SIZE = 250  # keep only ... last transitions
 RECORD_ENEMY_TRANSITIONS = 1.0  # record enemy transitions with probability ...
 GAMMA = 0.3
 
@@ -49,6 +49,7 @@ def setup_training(self):
     # (s, a, r, s')
     self.transitions = deque(maxlen=TRANSITION_HISTORY_SIZE)
     self.event_map = dict.fromkeys([e.KILLED_OPPONENT, e.COIN_COLLECTED], 0)
+
 
 def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_state: dict, events: List[str]):
     """
@@ -71,7 +72,7 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
         f'Encountered game event(s) {", ".join(map(repr, events))} in step {new_game_state["step"]}')
 
     # Add custom events
-    print(events)
+    # print(events)
     if len(events) > 0:
         for ev in events:
             if ev in self.event_map:
@@ -101,10 +102,6 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
         last_game_state), last_action, None, reward_from_events(self, events)))
 
     stochastic_gradient_descent(self, learning_rate=0.0001, epochs=1000)
-
-    for i in range(len(ACTIONS)):
-        self.model[:, i] = self.action_models_weight[ACTIONS[i]]
-    # print(self.action_models_weight)
 
     # Store the model
     with open("my-saved-model.pt", "wb") as file:
@@ -165,26 +162,28 @@ def get_custom_events(event_map) -> List[str]:
 
 
 def stochastic_gradient_descent(self, learning_rate=0.0001, epochs=1000):
-    states, actions, next_states, rewards = action_maps_initialization(self)
+    states, actions, next_states, rewards = get_transitions_as_matrices(self)
 
-    # train for each action a model with SDG
+    # train for each action a model with SGD
     for action in Action:
-
         mask_of_action = (actions == action.value)
-        states_for_action = states[mask_of_action, :]
-        next_states_for_action = next_states[mask_of_action, :]
-        rewards_for_action = rewards[mask_of_action]
 
-        y_t = td_q_learning(self, next_states_for_action, rewards_for_action, GAMMA)
+        # check if action was performed
+        if np.sum(mask_of_action) > 0:
+            states_for_action = states[mask_of_action, :]
+            next_states_for_action = next_states[mask_of_action, :]
+            rewards_for_action = rewards[mask_of_action]
 
-        lin_reg = SGDRegressor(max_iter=epochs, alpha=learning_rate, tol=1e-3, warm_start=True)
-        lin_reg.fit(states_for_action, y_t, coef_init=self.model[:, action.value])
+            y_t = td_q_learning(self, next_states_for_action, rewards_for_action, GAMMA)
 
-        self.model[:, action.value] = lin_reg.coef_
+            lin_reg = SGDRegressor(max_iter=epochs, alpha=learning_rate, tol=1e-3, warm_start=True)
+            lin_reg.fit(states_for_action, y_t, coef_init=self.model[:, action.value])
+
+            self.model[:, action.value] = lin_reg.coef_
 
 
 def batch_gradient_descent(self, learning_rate=0.0001, epochs=1000, batch_size=64):
-    actionFeatureMap, actionRewardMap = action_maps_initialization(self)
+    actionFeatureMap, actionRewardMap = get_transitions_as_matrices(self)
 
     for action, value in actionFeatureMap.items():
         X = np.array(value)
@@ -214,7 +213,7 @@ def batch_gradient_descent(self, learning_rate=0.0001, epochs=1000, batch_size=6
 
 
 def gradient_descent(self, learning_rate=0.0001, epochs=1000):
-    actionFeatureMap, actionRewardMap = action_maps_initialization(self)
+    actionFeatureMap, actionRewardMap = get_transitions_as_matrices(self)
 
     for action, value in actionFeatureMap.items():
         X = np.array(value)
@@ -251,27 +250,42 @@ def n_step_td_q_learning(self, next_state, t, n, gamma):
     return reward_sum + gamma ** n * np.max(np.matmul(transitions[t + n]['state'], self.model))
 
 
-def action_maps_initialization(self):
-    N = len(self.transitions)
+def get_transitions_as_matrices(self):
+    N = len(self.transitions) - 1
     D = self.transitions[-1].state.shape[0]
 
     actions = np.empty(N)
     states = np.empty((N, D))
-    next_states = np.empty((N, D))
+    next_states = np.zeros((N - 1, D))
     rewards = np.empty(N)
 
-    i = 0
+    """
+    Transition 0 isn't relevant -> excluded
+    Last transition -> next state nonexistent -> not relevant -> no estimation for y required bc reward is known in last round
+    """
+
+    i = -1
     for transition in self.transitions:
-        if i < N:
-            actions[i] = Action[transition.action].value
-            states[i, :] = transition.state
-            next_states[i, :] = transition.next_state
-            rewards[i] = transition.reward
-        else:
-            break
+        if i != -1:
+            if (i < N) and (transition.action is not None):
+                actions[i] = Action[transition.action].value
+                states[i, :] = transition.state
+
+                # TODO: handle nonexistent next_state if game is over
+                if transition.next_state is not None:
+                    next_states[i, :] = transition.next_state
+                rewards[i] = transition.reward
+            else:
+                break
         i += 1
 
-    return standardize_matrix_columns(states), actions, standardize_matrix_columns(next_states), rewards
+    # standardize data
+    states = standardize_matrix_columns(states)
+    next_states = standardize_matrix_columns(next_states)
+
+    next_states = np.vstack((next_states, np.zeros((1, 22))))
+
+    return states, actions, next_states, rewards
 
 
 def standardize_matrix_columns(X):

@@ -31,7 +31,7 @@ def setup(self):
     """
     if self.train or not os.path.isfile("my-saved-model.pt"):
         self.logger.info("Setting up model from scratch.")
-        self.model = np.random.rand(22,6)
+        self.model = np.random.rand(22, 6)
         self.epsilon = get_epsilon()
     else:
         self.logger.info("Loading model from saved state.")
@@ -43,7 +43,7 @@ def get_epsilon():
 
     epsilon = []
 
-    if (EPSILON_STRATEGY == "GREEDY_DECAY" ) or (EPSILON_STRATEGY == "GREEDY_DECAY_SOFTMAX"):
+    if (EPSILON_STRATEGY == "GREEDY_DECAY") or (EPSILON_STRATEGY == "GREEDY_DECAY_SOFTMAX"):
         epsilon = np.linspace(EPSILON_START_VALUE, EPSILON_END_VALUE, MAX_GAME_STEPS)
     elif EPSILON_STRATEGY == "GREEDY":
         epsilon = np.linspace(EPSILON_START_VALUE, EPSILON_START_VALUE, MAX_GAME_STEPS)
@@ -60,25 +60,18 @@ def act(self, game_state: dict) -> str:
     :param game_state: The dictionary that describes everything on the board.
     :return: The action to take as a string.
     """
-    # todo Exploration vs exploitation
-    if self.train: #and random.random() < random_prob:
-      
-        # computation of Q-values
-        # assumptions for value approximation of Q:
-        # 1. weights \beta_a are stored in a matrix column-wise -> multiplication of state_features with that matrix
-        #    leads to an array
-        # 2. weights \beta_a are stored in the same order as defined in ACTIONS 
-        state_features = state_to_features(game_state)
-        weights = self.model
-        Q_sa = np.argmax(np.matmul(state_features.T, weights))
-        argmax_Q = ACTIONS[Q_sa]
 
-        #print(f"state_features: {state_features}\n")
-        #print(f"weights: {weights}\n")
-        #print(f"Q_sa: {Q_sa}\n")
-        #print(f"argmax_Q: {argmax_Q}\n")
+    # computation of Q-values
+    # assumptions for value approximation of Q:
+    # 1. weights \beta_a are stored in a matrix column-wise -> multiplication of state_features with that matrix
+    #    leads to an array
+    # 2. weights \beta_a are stored in the same order as defined in ACTIONS
+    state_features = state_to_features(game_state)
+    weights = self.model
+    Q_sa = np.argmax(np.matmul(state_features.T, weights))
+    argmax_Q = ACTIONS[Q_sa]
 
-
+    if self.train:
         if EPSILON_STRATEGY == "GREEDY_DECAY_SOFTMAX":
             # IAUU exploration - improved epsilon-greedy strategy: uses softmax instead of uniform dist
             
@@ -86,20 +79,14 @@ def act(self, game_state: dict) -> str:
             numerator = np.exp(Q_sa/TAU)
             denominator = np.sum(numerator)
             probabilities = numerator/denominator
-            return np.random.choice([argmax_Q, np.random.choice(ACTIONS,p=probabilities)],p=[1-self.epsilon[game_state['step']],self.epsilon[game_state['step']]])
+            return np.random.choice([argmax_Q, np.random.choice(ACTIONS, p=probabilities)], p=[1-self.epsilon[game_state['step']], self.epsilon[game_state['step']]])
 
         else:
             # uses uniform probability to pick an action with probability epsilon
-            return np.random.choice([argmax_Q, np.random.choice(ACTIONS)],p=[1-self.epsilon[game_state['step']],self.epsilon[game_state['step']]])
-
-
-        # self.logger.debug("Choosing action purely at random.")
-        # 80%: walk in any direction. 10% wait. 10% bomb.
-        # return np.random.choice(ACTIONS, p=[.2, .2, .2, .2, .1, .1])
+            return np.random.choice([argmax_Q, np.random.choice(ACTIONS)], p=[1-self.epsilon[game_state['step']], self.epsilon[game_state['step']]])
 
     self.logger.debug("Querying model for action.")
-    return np.random.choice(ACTIONS, p=self.model)
-    # return self.model.propose_action(game_state)
+    return argmax_Q
 
 
 def state_to_features(game_state: dict) -> np.array:
