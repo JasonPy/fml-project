@@ -4,15 +4,14 @@ import random
 
 import numpy as np
 
-
 ACTIONS = ['UP', 'RIGHT', 'DOWN', 'LEFT', 'WAIT', 'BOMB']
 
 # hyperparamter / training config
-EPSILON_STRATEGY = "GREEDY_DECAY" # GREEDY / GREEDY_DECAY_SOFTMAX
+EPSILON_STRATEGY = "GREEDY_DECAY"  # GREEDY / GREEDY_DECAY_SOFTMAX
 EPSILON_START_VALUE = 0.7
 EPSILON_END_VALUE = 0
 MAX_GAME_STEPS = 401
-TAU = 5 # IAUU softmax policy
+TAU = 5  # IAUU softmax policy
 
 
 def setup(self):
@@ -40,7 +39,6 @@ def setup(self):
 
 
 def get_epsilon():
-
     epsilon = []
 
     if (EPSILON_STRATEGY == "GREEDY_DECAY") or (EPSILON_STRATEGY == "GREEDY_DECAY_SOFTMAX"):
@@ -74,16 +72,18 @@ def act(self, game_state: dict) -> str:
     if self.train:
         if EPSILON_STRATEGY == "GREEDY_DECAY_SOFTMAX":
             # IAUU exploration - improved epsilon-greedy strategy: uses softmax instead of uniform dist
-            
+
             # calculation of probabilities for actions
-            numerator = np.exp(Q_sa/TAU)
+            numerator = np.exp(Q_sa / TAU)
             denominator = np.sum(numerator)
-            probabilities = numerator/denominator
-            return np.random.choice([argmax_Q, np.random.choice(ACTIONS, p=probabilities)], p=[1-self.epsilon[game_state['step']], self.epsilon[game_state['step']]])
+            probabilities = numerator / denominator
+            return np.random.choice([argmax_Q, np.random.choice(ACTIONS, p=probabilities)],
+                                    p=[1 - self.epsilon[game_state['step']], self.epsilon[game_state['step']]])
 
         else:
             # uses uniform probability to pick an action with probability epsilon
-            return np.random.choice([argmax_Q, np.random.choice(ACTIONS)], p=[1-self.epsilon[game_state['step']], self.epsilon[game_state['step']]])
+            return np.random.choice([argmax_Q, np.random.choice(ACTIONS)],
+                                    p=[1 - self.epsilon[game_state['step']], self.epsilon[game_state['step']]])
 
     self.logger.debug("Querying model for action.")
     return argmax_Q
@@ -107,7 +107,7 @@ def state_to_features(game_state: dict) -> np.array:
     # This is the dict before the game begins and after it ends
     if game_state is None:
         return None
-    
+
     # feature vector (initially a list)
     X = []
 
@@ -124,7 +124,6 @@ def state_to_features(game_state: dict) -> np.array:
     coins = np.asarray(game_state['coins'])
     others = np.asarray(game_state['others'])
     explosion_map = game_state['explosion_map']
-
 
     ### distance to others
     others_dists = [max_dist + 1] * 3
@@ -144,51 +143,48 @@ def state_to_features(game_state: dict) -> np.array:
         bomb_dists = np.sort(bomb_dists).tolist()
     X = X + bomb_dists
 
-
     ### danger zone to determine if agent would get hit by bombs
     danger_zone = []
     for b in bombs:
-        print(b[1]+1)
+        print(b[1] + 1)
         if np.abs(pos[0] - b[0][0]) <= 3 or np.abs(pos[1] - b[0][1]) <= 3:
-            if pos[0] == b[0][0]:  
+            if pos[0] == b[0][0]:
                 y_pos = pos[1] - b[0][1]
                 if y_pos > 0:
                     if np.sum(np.where(field[pos[0], b[0][1]:pos[1]] == -1)) == 0:
-                        danger_zone.append(1 / (b[1]+ 1))
+                        danger_zone.append(1 / (b[1] + 1))
                     else:
                         danger_zone.append(0)
                 else:
                     if np.sum(np.where(field[pos[0], pos[1]:b[0][1]] == -1)) == 0:
-                        danger_zone.append(1 / (b[1]+ 1))
+                        danger_zone.append(1 / (b[1] + 1))
                     else:
                         danger_zone.append(0)
-            elif pos[1] == b[0][1]:  
+            elif pos[1] == b[0][1]:
                 x_pos = pos[0] - b[0][0]
                 if x_pos > 0:
                     if np.sum(np.where(field[b[0][0]:pos[0], pos[1]] == -1)) == 0:
-                        danger_zone.append(1 / (b[1]+ 1))
+                        danger_zone.append(1 / (b[1] + 1))
                     else:
                         danger_zone.append(0)
                 else:
                     if np.sum(np.where(field[pos[0]:b[0][0], pos[1]] == -1)) == 0:
-                        danger_zone.append(1 / (b[1]+ 1))
+                        danger_zone.append(1 / (b[1] + 1))
                     else:
                         danger_zone.append(0)
         else:
             danger_zone.append(0)
-    d = [0,0,0,0]
+    d = [0, 0, 0, 0]
     d[:len(danger_zone)] = np.sort(danger_zone)
     X = X + d
-
 
     ### distance to nearest crate
     crate_indices = np.argwhere(field == 1)
     if crate_indices.size > 0:
-        crate_dists = np.linalg.norm(crate_indices - pos, axis = 1)
+        crate_dists = np.linalg.norm(crate_indices - pos, axis=1)
         X.append(np.min(crate_dists))
     else:
-        X.append(max_dist + 1) # set to max dist
-
+        X.append(max_dist + 1)  # set to max dist
 
     ### distance to nearest coin
     coin_dists = []
@@ -198,60 +194,58 @@ def state_to_features(game_state: dict) -> np.array:
             coin_dists.append(dist)
         X.append(np.min(coin_dists))
     else:
-        X.append(max_dist + 1) # set to max dist
+        X.append(max_dist + 1)  # set to max dist
 
     ### prevent invalid actions
-    #tile to the right
+    # tile to the right
     if pos[0] + 1 > field.shape[0]:
         X.append(-1)
     else:
         X.append(field[pos[0] + 1, pos[1]])
 
-    #tile to the left
+    # tile to the left
     if pos[0] - 1 < field.shape[0]:
         X.append(-1)
     else:
-         X.append(field[pos[0] - 1, pos[1]])
-    
-    #tile below
+        X.append(field[pos[0] - 1, pos[1]])
+
+    # tile below
     if pos[1] + 1 > field.shape[1]:
         X.append(-1)
     else:
-         X.append(field[pos[0], pos[1] + 1])
+        X.append(field[pos[0], pos[1] + 1])
 
-    #tile above
+    # tile above
     if pos[1] - 1 < field.shape[1]:
         X.append(-1)
     else:
-         X.append(field[pos[0], pos[1] - 1])
-    
-    
+        X.append(field[pos[0], pos[1] - 1])
+
     ### check explosion map
-    #tile to the right
+    # tile to the right
     if pos[0] + 1 > field.shape[0]:
         X.append(0)
     else:
         X.append(explosion_map[pos[0] + 1, pos[1]])
 
-    #tile to the left
+    # tile to the left
     if pos[0] - 1 < field.shape[0]:
         X.append(0)
     else:
-         X.append(explosion_map[pos[0] - 1, pos[1]])
-    
-    #tile below
+        X.append(explosion_map[pos[0] - 1, pos[1]])
+
+    # tile below
     if pos[1] + 1 > field.shape[1]:
         X.append(0)
     else:
-         X.append(explosion_map[pos[0], pos[1] + 1])
+        X.append(explosion_map[pos[0], pos[1] + 1])
 
-    #tile above
+    # tile above
     if pos[1] - 1 < explosion_map.shape[1]:
         X.append(0)
     else:
-         X.append(explosion_map[pos[0], pos[1] - 1])
-    
-    
+        X.append(explosion_map[pos[0], pos[1] - 1])
+
     ### agressiveness 
     X.append(step * others.shape[0])
 
