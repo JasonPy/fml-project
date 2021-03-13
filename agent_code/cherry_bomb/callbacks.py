@@ -11,7 +11,7 @@ ACTIONS = ['UP', 'RIGHT', 'DOWN', 'LEFT', 'WAIT', 'BOMB']
 EPSILON_STRATEGY = "GREEDY_DECAY" # GREEDY / GREEDY_DECAY_SOFTMAX
 EPSILON_START_VALUE = 0.7
 EPSILON_END_VALUE = 0
-MAX_GAME_STEPS = 400
+MAX_GAME_STEPS = 401
 TAU = 5 # IAUU softmax policy
 
 
@@ -73,10 +73,10 @@ def act(self, game_state: dict) -> str:
         Q_sa = np.argmax(np.matmul(state_features.T, weights))
         argmax_Q = ACTIONS[Q_sa]
 
-        print(f"state_features: {state_features}\n")
-        print(f"weights: {weights}\n")
-        print(f"Q_sa: {Q_sa}\n")
-        print(f"argmax_Q: {argmax_Q}\n")
+        #print(f"state_features: {state_features}\n")
+        #print(f"weights: {weights}\n")
+        #print(f"Q_sa: {Q_sa}\n")
+        #print(f"argmax_Q: {argmax_Q}\n")
 
 
         if EPSILON_STRATEGY == "GREEDY_DECAY_SOFTMAX":
@@ -268,5 +268,4 @@ def state_to_features(game_state: dict) -> np.array:
     ### agressiveness 
     X.append(step * others.shape[0])
 
-    print(len(X))
     return np.array(X)

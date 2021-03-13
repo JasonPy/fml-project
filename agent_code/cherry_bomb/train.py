@@ -3,6 +3,7 @@ import random
 import numpy as np
 from collections import namedtuple, deque
 from typing import List
+from enum import Enum
 
 from sklearn.linear_model import SGDRegressor
 from sklearn.preprocessing import StandardScaler
@@ -12,13 +13,24 @@ import events as e
 from .callbacks import state_to_features
 from .callbacks import ACTIONS
 
+
+class Action(Enum):
+    UP = 0
+    RIGHT = 1
+    DOWN = 2
+    LEFT = 3
+    WAIT = 4
+    BOMB = 5
+
+
 # This is only an example!
 Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
 
 # Hyper parameters -- DO modify
-TRANSITION_HISTORY_SIZE = 400  # keep only ... last transitions
+TRANSITION_HISTORY_SIZE = 3  # keep only ... last transitions
 RECORD_ENEMY_TRANSITIONS = 1.0  # record enemy transitions with probability ...
+GAMMA = 0.3
 
 # Custom events
 DOUBLE_KILL = "DOUBLE_KILL"
@@ -36,15 +48,7 @@ def setup_training(self):
     # Example: Setup an array that will note transition tuples
     # (s, a, r, s')
     self.transitions = deque(maxlen=TRANSITION_HISTORY_SIZE)
-    self.event_map = dict.fromkeys([e.KILLED_OPPONENT,e.COIN_COLLECTED], 0)
-
-    # intialize for each action a model
-    self.action_models_weight = {}
-
-    for i in range(len(ACTIONS)):
-        self.action_models_weight[ACTIONS[i]] = self.model[:, i]
-    print(self.action_models_weight)    
-
+    self.event_map = dict.fromkeys([e.KILLED_OPPONENT, e.COIN_COLLECTED], 0)
 
 def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_state: dict, events: List[str]):
     """
@@ -97,7 +101,7 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
         last_game_state), last_action, None, reward_from_events(self, events)))
 
     stochastic_gradient_descent(self, learning_rate=0.0001, epochs=1000)
-    
+
     for i in range(len(ACTIONS)):
         self.model[:, i] = self.action_models_weight[ACTIONS[i]]
     # print(self.action_models_weight)
@@ -128,7 +132,7 @@ def reward_from_events(self, events: List[str]) -> int:
         e.COIN_COLLECTED: 3,
 
         e.KILLED_OPPONENT: 10,
-        e.KILLED_SELF: -15,
+        e.KILLED_SELF: -15,  # triggered with GOT_KILLED
 
         e.GOT_KILLED: -10,
         e.OPPONENT_ELIMINATED: 0,
@@ -161,33 +165,31 @@ def get_custom_events(event_map) -> List[str]:
 
 
 def stochastic_gradient_descent(self, learning_rate=0.0001, epochs=1000):
-    actionFeatureMap, actionRewardMap = action_maps_initilization(self)
+    states, actions, next_states, rewards = action_maps_initialization(self)
 
     # train for each action a model with SDG
-    for action, value in actionFeatureMap.items():
-        if len(value) > 0:
+    for action in Action:
 
-            X = np.array(value)
-            y_t = np.array(actionRewardMap[action])
+        mask_of_action = (actions == action.value)
+        states_for_action = states[mask_of_action, :]
+        next_states_for_action = next_states[mask_of_action, :]
+        rewards_for_action = rewards[mask_of_action]
 
-            scaler = StandardScaler()
-            print(y_t.shape, y_t)
-            print(X.shape, X)
-            # X = scaler.fit_transform(X)
+        y_t = td_q_learning(self, next_states_for_action, rewards_for_action, GAMMA)
 
-            lin_reg = SGDRegressor(max_iter=epochs, alpha=learning_rate, tol=1e-3, warm_start=True)
-            lin_reg.fit(X, y_t, coef_init=self.action_models_weight[action])
+        lin_reg = SGDRegressor(max_iter=epochs, alpha=learning_rate, tol=1e-3, warm_start=True)
+        lin_reg.fit(states_for_action, y_t, coef_init=self.model[:, action.value])
 
-            self.action_models_weight[action] = lin_reg.coef_        
+        self.model[:, action.value] = lin_reg.coef_
 
 
-def batch_gradient_descent(self, learning_rate=0.0001, epochs=1000, batch_size = 64):
-    actionFeatureMap, actionRewardMap = action_maps_initilization(self)
+def batch_gradient_descent(self, learning_rate=0.0001, epochs=1000, batch_size=64):
+    actionFeatureMap, actionRewardMap = action_maps_initialization(self)
 
     for action, value in actionFeatureMap.items():
         X = np.array(value)
-        
-        batch_indices = random.sample(range(0,len(X)), batch_size)
+
+        batch_indices = random.sample(range(0, len(X)), batch_size)
 
         batch = X[batch_indices, :]
         y_t = np.array(actionRewardMap[action])[batch_indices, :]
@@ -199,19 +201,20 @@ def batch_gradient_descent(self, learning_rate=0.0001, epochs=1000, batch_size =
         y_t = np.array(actionRewardMap[action])
 
         beta = self.action_models[action]
-      
+
         for i in epochs:
-            y_pred = batch*beta
+            y_pred = batch * beta
             # calculate the derivative of the loss function with respect to beta
-            D_beta = (-2/batch_size) * sum((batch.T * (y_t - y_pred)), axis=0)
+            D_beta = (-2 / batch_size) * np.sum((batch.T * (y_t - y_pred)), axis=0)
 
             # update the weights
             beta -= learning_rate * D_beta
 
         self.action_models[action] = beta
 
+
 def gradient_descent(self, learning_rate=0.0001, epochs=1000):
-    actionFeatureMap, actionRewardMap = action_maps_initilization(self)
+    actionFeatureMap, actionRewardMap = action_maps_initialization(self)
 
     for action, value in actionFeatureMap.items():
         X = np.array(value)
@@ -226,9 +229,9 @@ def gradient_descent(self, learning_rate=0.0001, epochs=1000):
         n = len(X)
 
         for i in epochs:
-            y_pred = X*beta
+            y_pred = X * beta
             # calculate the derivative of the loss function with respect to beta
-            D_beta = (-2/n) * sum((X.T * (y_t - y_pred)), axis=0)
+            D_beta = (-2 / n) * sum((X.T * (y_t - y_pred)), axis=0)
 
             # update the weights
             beta -= learning_rate * D_beta
@@ -236,18 +239,40 @@ def gradient_descent(self, learning_rate=0.0001, epochs=1000):
         self.action_models[action] = beta
 
 
-def action_maps_initilization(self):
-    actionFeatureMap = {}
-    actionRewardMap = {}
+def td_q_learning(self, next_state, reward, gamma):
+    return reward + gamma * np.max(np.matmul(next_state, self.model))
 
-    for a in ACTIONS:
-        actionFeatureMap[a] = []
-        actionRewardMap[a] = []
 
-    # fill map with actions as key and their corresponding features/rewards as value
+def n_step_td_q_learning(self, next_state, t, n, gamma):
+    transitions = list(self.transitions)
+
+    for i in range(1, n + 1):
+        reward_sum = gamma ** (i - 1) * transitions[t + i]['reward']
+    return reward_sum + gamma ** n * np.max(np.matmul(transitions[t + n]['state'], self.model))
+
+
+def action_maps_initialization(self):
+    N = len(self.transitions)
+    D = self.transitions[-1].state.shape[0]
+
+    actions = np.empty(N)
+    states = np.empty((N, D))
+    next_states = np.empty((N, D))
+    rewards = np.empty(N)
+
+    i = 0
     for transition in self.transitions:
-        print(transition)
-        actionFeatureMap[transition.action].append(transition.state)
-        actionRewardMap[transition.action].append(transition.reward)
+        if i < N:
+            actions[i] = Action[transition.action].value
+            states[i, :] = transition.state
+            next_states[i, :] = transition.next_state
+            rewards[i] = transition.reward
+        else:
+            break
+        i += 1
 
-    return actionFeatureMap, actionRewardMap
+    return standardize_matrix_columns(states), actions, standardize_matrix_columns(next_states), rewards
+
+
+def standardize_matrix_columns(X):
+    return (X - np.mean(X, axis=0)) / (np.std(X, axis=0) + 1e-99)
