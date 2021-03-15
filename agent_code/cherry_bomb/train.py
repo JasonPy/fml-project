@@ -52,12 +52,12 @@ def setup_training(self):
     # (s, a, r, s')
     self.transitions = deque(maxlen=TRANSITION_HISTORY_SIZE)
     self.event_map = dict.fromkeys([e.KILLED_OPPONENT, e.COIN_COLLECTED], 0)
-    self.reward_per_epoch = []
+    self.reward_per_epoch = 0
     self.number_of_epoch = 1
     now = datetime.now()
     datetime_str = now.strftime("%m %d %Y, %H:%M:%S")
     self.csv_filename = "rewards_per_epoch" + "_" + datetime_str + ".csv"
-
+    self.csv_actions_filename = "actions" + "_" + datetime_str + ".csv"
 
 def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_state: dict, events: List[str]):
     """
@@ -90,7 +90,9 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
     # state_to_features is defined in callbacks.py
     self.transitions.append(Transition(state_to_features(
         old_game_state), self_action, state_to_features(new_game_state), reward_from_events(self, events)))
+    self.reward_per_epoch += reward_from_events(self, events)
 
+    append_data_to_csv(self.csv_actions_filename, self.number_of_epoch, events)
 
 
 def end_of_round(self, last_game_state: dict, last_action: str, events: List[str]):
@@ -112,15 +114,17 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
     self.transitions.append(Transition(state_to_features(
         last_game_state), last_action, None, reward))
 
-    stochastic_gradient_descent(self, learning_rate=0.0001, epochs=1000)
+    stochastic_gradient_descent(self, alpha=0.0001, epochs=10000)
 
     self.number_of_epoch += 1
     # Store the model
     with open("my-saved-model.pt", "wb") as file:
         pickle.dump(self.model, file)
 
-    append_data_to_csv(self.csv_filename, last_game_state['round'], reward)
+    append_data_to_csv(self.csv_filename, last_game_state['round'], self.reward_per_epoch)
     self.epsilon -= self.decay_rate
+    self.reward_per_epoch = 0
+
 
 def reward_from_events(self, events: List[str]) -> int:
     """
@@ -133,7 +137,7 @@ def reward_from_events(self, events: List[str]) -> int:
         e.MOVED_UP: -1,
         e.MOVED_DOWN: -1,
         e.WAITED: -1,
-        e.INVALID_ACTION: -5,
+        e.INVALID_ACTION: -10,
 
         e.BOMB_DROPPED: -1,
         e.BOMB_EXPLODED: 0,
@@ -174,7 +178,7 @@ def get_custom_events(event_map) -> List[str]:
     return custom_events
 
 
-def stochastic_gradient_descent(self, learning_rate=0.001, epochs=10000):
+def stochastic_gradient_descent(self, alpha=0.001, epochs=10000):
     states, actions, next_states, rewards = get_transitions_as_matrices(self)
 
     # train for each action a model with SGD
@@ -189,7 +193,7 @@ def stochastic_gradient_descent(self, learning_rate=0.001, epochs=10000):
 
             y_t = td_q_learning(self, next_states_for_action, rewards_for_action, GAMMA)
 
-            lin_reg = SGDRegressor(max_iter=epochs, alpha=learning_rate, tol=1e-3, fit_intercept=False, warm_start=True)
+            lin_reg = SGDRegressor(max_iter=epochs, learning_rate='optimal', tol=1e-3, fit_intercept=False, warm_start=True)
             lin_reg.fit(states_for_action, y_t, coef_init=self.model[:, action.value])
 
             self.model[:, action.value] = lin_reg.coef_
