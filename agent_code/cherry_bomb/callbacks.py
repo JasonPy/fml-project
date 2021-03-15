@@ -8,9 +8,14 @@ ACTIONS = ['UP', 'RIGHT', 'DOWN', 'LEFT', 'WAIT', 'BOMB']
 
 # hyperparamter / training config
 EPSILON_STRATEGY = "GREEDY_DECAY"  # GREEDY / GREEDY_DECAY_SOFTMAX
-EPSILON_START_VALUE = 0.7
-EPSILON_END_VALUE = 0
+EPSILON_START_VALUE = 0.4
+EPSILON_END_VALUE = 0.01
+
 MAX_GAME_STEPS = 401
+
+NUMBER_FEATURES = 22
+NUMBER_EPISODES = 5000
+
 TAU = 5  # IAUU softmax policy
 
 
@@ -28,25 +33,30 @@ def setup(self):
 
     :param self: This object is passed to all callbacks and you can set arbitrary values.
     """
-    if self.train or not os.path.isfile("my-saved-model.pt"):
-        self.logger.info("Setting up model from scratch.")
-        self.model = np.random.rand(22, 6)
-        self.epsilon = get_epsilon()
+
+    if self.train:
+        if os.path.isfile("my-saved-model.pt"):
+            with open("my-saved-model.pt", "rb") as file:
+                self.model = pickle.load(file)
+        else:
+            set_weights(self)
+
+        self.epsilon = EPSILON_START_VALUE
+        if EPSILON_STRATEGY == "GREEDY":
+            self.decay_rate = 0
+        else:
+            self.decay_rate = (EPSILON_START_VALUE - EPSILON_END_VALUE) / NUMBER_EPISODES
     else:
         self.logger.info("Loading model from saved state.")
         with open("my-saved-model.pt", "rb") as file:
             self.model = pickle.load(file)
 
 
-def get_epsilon():
-    epsilon = []
+def set_weights(self):
+    self.model = np.zeros((NUMBER_FEATURES, 6))
 
-    if (EPSILON_STRATEGY == "GREEDY_DECAY") or (EPSILON_STRATEGY == "GREEDY_DECAY_SOFTMAX"):
-        epsilon = np.linspace(EPSILON_START_VALUE, EPSILON_END_VALUE, MAX_GAME_STEPS)
-    elif EPSILON_STRATEGY == "GREEDY":
-        epsilon = np.linspace(EPSILON_START_VALUE, EPSILON_START_VALUE, MAX_GAME_STEPS)
-
-    return epsilon
+    self.model[:, 0:4] = np.random.uniform(0.7, 1, (NUMBER_FEATURES, 4))
+    self.model[:, 4:6] = np.random.uniform(0, 0.2, (NUMBER_FEATURES, 2))
 
 
 def act(self, game_state: dict) -> str:
@@ -78,12 +88,13 @@ def act(self, game_state: dict) -> str:
             denominator = np.sum(numerator)
             probabilities = numerator / denominator
             return np.random.choice([argmax_Q, np.random.choice(ACTIONS, p=probabilities)],
-                                    p=[1 - self.epsilon[game_state['step']], self.epsilon[game_state['step']]])
-
+                                    p=[1 - self.epsilon,
+                                       self.epsilon])
         else:
             # uses uniform probability to pick an action with probability epsilon
             return np.random.choice([argmax_Q, np.random.choice(ACTIONS)],
-                                    p=[1 - self.epsilon[game_state['step']], self.epsilon[game_state['step']]])
+                                    p=[1 - self.epsilon,
+                                       self.epsilon])
 
     self.logger.debug("Querying model for action.")
     return argmax_Q
@@ -146,7 +157,6 @@ def state_to_features(game_state: dict) -> np.array:
     ### danger zone to determine if agent would get hit by bombs
     danger_zone = []
     for b in bombs:
-        print(b[1] + 1)
         if np.abs(pos[0] - b[0][0]) <= 3 or np.abs(pos[1] - b[0][1]) <= 3:
             if pos[0] == b[0][0]:
                 y_pos = pos[1] - b[0][1]

@@ -1,6 +1,9 @@
 import pickle
 import random
 import numpy as np
+from datetime import datetime
+
+import csv
 from collections import namedtuple, deque
 from typing import List
 from enum import Enum
@@ -28,9 +31,9 @@ Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
 
 # Hyper parameters -- DO modify
-TRANSITION_HISTORY_SIZE = 250  # keep only ... last transitions
+TRANSITION_HISTORY_SIZE = 400  # keep only ... last transitions
 RECORD_ENEMY_TRANSITIONS = 1.0  # record enemy transitions with probability ...
-GAMMA = 0.3
+GAMMA = 0.8
 
 # Custom events
 DOUBLE_KILL = "DOUBLE_KILL"
@@ -49,6 +52,11 @@ def setup_training(self):
     # (s, a, r, s')
     self.transitions = deque(maxlen=TRANSITION_HISTORY_SIZE)
     self.event_map = dict.fromkeys([e.KILLED_OPPONENT, e.COIN_COLLECTED], 0)
+    self.reward_per_epoch = []
+    self.number_of_epoch = 1
+    now = datetime.now()
+    datetime_str = now.strftime("%m %d %Y, %H:%M:%S")
+    self.csv_filename = "rewards_per_epoch" + "_" + datetime_str + ".csv"
 
 
 def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_state: dict, events: List[str]):
@@ -84,6 +92,7 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
         old_game_state), self_action, state_to_features(new_game_state), reward_from_events(self, events)))
 
 
+
 def end_of_round(self, last_game_state: dict, last_action: str, events: List[str]):
     """
     Called at the end of each game or when the agent died to hand out final rewards.
@@ -96,17 +105,22 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
 
     :param self: The same object that is passed to all of your callbacks.
     """
+
+    reward = reward_from_events(self, events)
     self.logger.debug(
         f'Encountered event(s) {", ".join(map(repr, events))} in final step')
     self.transitions.append(Transition(state_to_features(
-        last_game_state), last_action, None, reward_from_events(self, events)))
+        last_game_state), last_action, None, reward))
 
     stochastic_gradient_descent(self, learning_rate=0.0001, epochs=1000)
 
+    self.number_of_epoch += 1
     # Store the model
     with open("my-saved-model.pt", "wb") as file:
         pickle.dump(self.model, file)
 
+    append_data_to_csv(self.csv_filename, last_game_state['round'], reward)
+    self.epsilon -= self.decay_rate
 
 def reward_from_events(self, events: List[str]) -> int:
     """
@@ -150,7 +164,6 @@ def reward_from_events(self, events: List[str]) -> int:
 def get_custom_events(event_map) -> List[str]:
     # TODO: more generic by using state to get amount of players
     custom_events = []
-    print(event_map)
 
     if event_map[e.KILLED_OPPONENT] == 2:
         custom_events.append(DOUBLE_KILL)
@@ -161,7 +174,7 @@ def get_custom_events(event_map) -> List[str]:
     return custom_events
 
 
-def stochastic_gradient_descent(self, learning_rate=0.0001, epochs=1000):
+def stochastic_gradient_descent(self, learning_rate=0.001, epochs=10000):
     states, actions, next_states, rewards = get_transitions_as_matrices(self)
 
     # train for each action a model with SGD
@@ -176,7 +189,7 @@ def stochastic_gradient_descent(self, learning_rate=0.0001, epochs=1000):
 
             y_t = td_q_learning(self, next_states_for_action, rewards_for_action, GAMMA)
 
-            lin_reg = SGDRegressor(max_iter=epochs, alpha=learning_rate, tol=1e-3, warm_start=True)
+            lin_reg = SGDRegressor(max_iter=epochs, alpha=learning_rate, tol=1e-3, fit_intercept=False, warm_start=True)
             lin_reg.fit(states_for_action, y_t, coef_init=self.model[:, action.value])
 
             self.model[:, action.value] = lin_reg.coef_
@@ -251,42 +264,47 @@ def n_step_td_q_learning(self, next_state, t, n, gamma):
 
 
 def get_transitions_as_matrices(self):
-    N = len(self.transitions) - 1
-    D = self.transitions[-1].state.shape[0]
-
-    actions = np.empty(N)
-    states = np.empty((N, D))
-    next_states = np.zeros((N - 1, D))
-    rewards = np.empty(N)
+    actions = []
+    states = []
+    next_states = []
+    rewards = []
 
     """
     Transition 0 isn't relevant -> excluded
     Last transition -> next state nonexistent -> not relevant -> no estimation for y required bc reward is known in last round
     """
 
-    i = -1
     for transition in self.transitions:
-        if i != -1:
-            if (i < N) and (transition.action is not None):
-                actions[i] = Action[transition.action].value
-                states[i, :] = transition.state
+        if transition.action is not None:
+            actions.append(Action[transition.action].value)
+            states.append(transition.state)
 
-                # TODO: handle nonexistent next_state if game is over
-                if transition.next_state is not None:
-                    next_states[i, :] = transition.next_state
-                rewards[i] = transition.reward
+            if transition.next_state is not None:
+                next_states.append(transition.next_state)
             else:
-                break
-        i += 1
+                # TODO: another strategy for filling next_state
+                next_states.append(np.zeros(22))
+            rewards.append(transition.reward)
+
+    actions = np.array(actions)
+    states = np.array(states)
+    next_states = np.array(next_states)
+    rewards = np.array(rewards)
 
     # standardize data
-    states = standardize_matrix_columns(states)
-    next_states = standardize_matrix_columns(next_states)
-
-    next_states = np.vstack((next_states, np.zeros((1, 22))))
+    states = standardize(states)
+    next_states = standardize(next_states)
 
     return states, actions, next_states, rewards
 
 
-def standardize_matrix_columns(X):
-    return (X - np.mean(X, axis=0)) / (np.std(X, axis=0) + 1e-99)
+def append_data_to_csv(filename, epoch, data):
+    with open(filename, 'a', newline='') as file:
+        csv_writer = csv.writer(file)
+        csv_writer.writerow([epoch, data])
+
+
+def standardize(X):
+    scaler = StandardScaler()
+    scaler.fit(X)
+    return scaler.transform(X)
