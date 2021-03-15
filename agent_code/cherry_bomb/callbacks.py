@@ -6,17 +6,16 @@ import numpy as np
 
 ACTIONS = ['UP', 'RIGHT', 'DOWN', 'LEFT', 'WAIT', 'BOMB']
 
-# hyperparamter / training config
+# hyperparamters / training config
 EPSILON_STRATEGY = "GREEDY_DECAY"  # GREEDY / GREEDY_DECAY_SOFTMAX
-EPSILON_START_VALUE = 1
-EPSILON_END_VALUE = 0.1
+EPSILON_START_VALUE = 1.0
+EPSILON_END_VALUE = 0.01
 
 MAX_GAME_STEPS = 401
-
-NUMBER_FEATURES = 22
 NUMBER_EPISODES = 10000
 
-TAU = 5  # IAUU softmax policy
+# IAUU softmax policy
+TAU = 5
 
 
 def setup(self):
@@ -34,18 +33,26 @@ def setup(self):
     :param self: This object is passed to all callbacks and you can set arbitrary values.
     """
 
+    self.number_of_features = 24
+
     if self.train:
         if os.path.isfile("my-saved-model.pt"):
+            # train weights from existing file
             with open("my-saved-model.pt", "rb") as file:
                 self.model = pickle.load(file)
         else:
+            # train weights entirely new based on specific weight setup
             set_weights(self)
 
         self.epsilon = EPSILON_START_VALUE
+
         if EPSILON_STRATEGY == "GREEDY":
+            # epsilon is constant
             self.decay_rate = 0
         else:
+            # epsilon decays
             self.decay_rate = (EPSILON_START_VALUE - EPSILON_END_VALUE) / NUMBER_EPISODES
+
     else:
         self.logger.info("Loading model from saved state.")
         with open("my-saved-model.pt", "rb") as file:
@@ -53,10 +60,10 @@ def setup(self):
 
 
 def set_weights(self):
-    self.model = np.zeros((NUMBER_FEATURES, 6))
+    self.model = np.zeros((self.number_of_features, 6))
 
-    self.model[:, 0:4] = np.random.uniform(0.7, 1, (NUMBER_FEATURES, 4))
-    self.model[:, 4:6] = np.random.uniform(0, 0.2, (NUMBER_FEATURES, 2))
+    self.model[:, 0:4] = np.random.uniform(0.7, 1, (self.number_of_features, 4))
+    self.model[:, 4:6] = np.random.uniform(0, 0.2, (self.number_of_features, 2))
 
 
 def act(self, game_state: dict) -> str:
@@ -81,7 +88,8 @@ def act(self, game_state: dict) -> str:
 
     if self.train:
         if EPSILON_STRATEGY == "GREEDY_DECAY_SOFTMAX":
-            # IAUU exploration - improved epsilon-greedy strategy: uses softmax instead of uniform dist
+            # IAUU exploration
+            # improved epsilon-greedy strategy: uses softmax instead of uniform dist
 
             # calculation of probabilities for actions
             numerator = np.exp(Q_sa / TAU)
@@ -102,8 +110,6 @@ def act(self, game_state: dict) -> str:
 
 def state_to_features(game_state: dict) -> np.array:
     """
-    *This is not a required function, but an idea to structure your code.*
-
     Converts the game state to the input of your model, i.e.
     a feature vector.
 
@@ -122,11 +128,7 @@ def state_to_features(game_state: dict) -> np.array:
     # feature vector (initially a list)
     X = []
 
-    ### access game_state and retrieve information
-
-    # max distance equals length of diagonal of field
-    max_dist = np.linalg.norm(np.array([1, 1]) - game_state['field'].shape)
-
+    # access game_state and retrieve information
     rnd = game_state['round']
     step = game_state['step']
     field = game_state['field'].T
@@ -136,7 +138,10 @@ def state_to_features(game_state: dict) -> np.array:
     others = np.asarray(game_state['others'])
     explosion_map = game_state['explosion_map']
 
-    ### distance to others
+    # max distance equals length of diagonal of field
+    max_dist = np.linalg.norm(np.array([1, 1]) - game_state['field'].shape)
+
+    # distance to others
     others_dists = [max_dist + 1] * 3
     if others.shape[0] > 0:
         for i in range(len(others)):
@@ -145,7 +150,7 @@ def state_to_features(game_state: dict) -> np.array:
         others_dists = np.sort(others_dists).tolist()
     X = X + others_dists
 
-    ### distance to bombs 
+    # distance to bombs
     bomb_dists = [max_dist + 1] * 4
     if bombs.size > 0:
         for i in range(len(bombs)):
@@ -154,7 +159,7 @@ def state_to_features(game_state: dict) -> np.array:
         bomb_dists = np.sort(bomb_dists).tolist()
     X = X + bomb_dists
 
-    ### danger zone to determine if agent would get hit by bombs
+    # danger zone to determine if agent would get hit by bombs
     danger_zone = []
     for b in bombs:
         if np.abs(pos[0] - b[0][0]) <= 3 or np.abs(pos[1] - b[0][1]) <= 3:
@@ -188,7 +193,7 @@ def state_to_features(game_state: dict) -> np.array:
     d[:len(danger_zone)] = np.sort(danger_zone)
     X = X + d
 
-    ### distance to nearest crate
+    # distance to nearest crate
     crate_indices = np.argwhere(field == 1)
     if crate_indices.size > 0:
         crate_dists = np.linalg.norm(crate_indices - pos, axis=1)
@@ -196,17 +201,24 @@ def state_to_features(game_state: dict) -> np.array:
     else:
         X.append(max_dist + 1)  # set to max dist
 
-    ### distance to nearest coin
+    # distance / direction to nearest coin
     coin_dists = []
     if coins.size > 0:
         for i in range(len(coins)):
             dist = np.linalg.norm(np.asarray(coins[i]) - pos)
             coin_dists.append(dist)
         X.append(np.min(coin_dists))
+
+        # determine coin direction
+        coin_dir = np.sign(coins[np.argmin(coin_dists)] - pos)
+        X.append(coin_dir[0])
+        X.append(coin_dir[1])
     else:
         X.append(max_dist + 1)  # set to max dist
+        X.append(0)  # no coin direction
+        X.append(0)
 
-    ### prevent invalid actions
+    # prevent invalid actions
     # tile to the right
     if pos[0] + 1 > field.shape[0]:
         X.append(-1)
@@ -231,7 +243,7 @@ def state_to_features(game_state: dict) -> np.array:
     else:
         X.append(field[pos[0], pos[1] - 1])
 
-    ### check explosion map
+    # check explosion map
     # tile to the right
     if pos[0] + 1 > field.shape[0]:
         X.append(0)
@@ -256,7 +268,7 @@ def state_to_features(game_state: dict) -> np.array:
     else:
         X.append(explosion_map[pos[0], pos[1] - 1])
 
-    ### agressiveness 
+    # aggressiveness
     X.append(step * others.shape[0])
 
     return np.array(X)
