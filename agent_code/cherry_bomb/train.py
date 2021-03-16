@@ -16,7 +16,7 @@ import events as e
 from .callbacks import state_to_features
 from .callbacks import ACTIONS
 
-
+# assign each action e scalar value
 class Action(Enum):
     UP = 0
     RIGHT = 1
@@ -30,14 +30,20 @@ class Action(Enum):
 Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
 
-# Hyper parameters -- DO modify
+# Hyper parameters
 TRANSITION_HISTORY_SIZE = 400  # keep only ... last transitions
-RECORD_ENEMY_TRANSITIONS = 1.0  # record enemy transitions with probability ...
-GAMMA = 0.8
+RECORD_ENEMY_TRANSITIONS = 0.  # record enemy transitions with probability ...
+GAMMA = 0.8  # discount value
 
 # Custom events
 DOUBLE_KILL = "DOUBLE_KILL"
 DOUBLE_COIN = "DOUBLE_COIN"
+LAST_AGENT_ALIVE = "LAST_AGENT_ALIVE"
+IN_SAFE_SPOT = "IN_SAFE_SPOT"
+CLOSER_TO_OPPONENT = "CLOSER_TO_OPPONENT"
+CLOSER_TO_COIN = "CLOSER_TO_COIN"
+FURTHER_FROM_OPPONENT = "FURTHER_FROM_OPPONENT"
+FURTHER_FROM_COIN = "FURTHER_FROM_COIN"
 
 
 def setup_training(self):
@@ -94,7 +100,7 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
         old_game_state), self_action, state_to_features(new_game_state), reward_from_events(self, events)))
     self.reward_per_epoch += reward_from_events(self, events)
 
-    append_data_to_csv(self.csv_actions_filename, self.number_of_epoch, events)
+    # append_data_to_csv(self.csv_actions_filename, self.number_of_epoch, events)
 
 
 def end_of_round(self, last_game_state: dict, last_action: str, events: List[str]):
@@ -124,8 +130,8 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
     with open("my-saved-model.pt", "wb") as file:
         pickle.dump(self.model, file)
 
-    append_data_to_csv(self.csv_filename, last_game_state['round'], self.reward_per_epoch)
-    self.epsilon -= self.decay_rate
+    # append_data_to_csv(self.csv_filename, last_game_state['round'], self.reward_per_epoch)
+    # self.epsilon -= self.decay_rate
     self.reward_per_epoch = 0
 
 
@@ -145,19 +151,26 @@ def reward_from_events(self, events: List[str]) -> int:
         e.BOMB_DROPPED: -1,
         e.BOMB_EXPLODED: 0,
 
-        e.CRATE_DESTROYED: 2,
-        e.COIN_FOUND: 5,
-        e.COIN_COLLECTED: 10,
+        e.CRATE_DESTROYED: 30,
+        e.COIN_FOUND: 50,
+        e.COIN_COLLECTED: 75,
 
-        e.KILLED_OPPONENT: 20,
-        e.KILLED_SELF: -20,  # triggered with GOT_KILLED
+        e.KILLED_OPPONENT: 100,
+        e.KILLED_SELF: -400,  # triggered with GOT_KILLED
 
-        e.GOT_KILLED: -20,
+        e.GOT_KILLED: -300,
         e.OPPONENT_ELIMINATED: 0,
-        e.SURVIVED_ROUND: 15,
+        e.SURVIVED_ROUND: 150,
 
-        DOUBLE_COIN: 2,
-        DOUBLE_KILL: 2
+        # custom rewards
+        DOUBLE_COIN: 40,
+        DOUBLE_KILL: 40,
+        LAST_AGENT_ALIVE: 175,
+        # TODO: IN_SAFE_SPOT: 40,
+        CLOSER_TO_OPPONENT: 0.2,
+        CLOSER_TO_COIN: 0.2,
+        FURTHER_FROM_OPPONENT: -0.2,
+        FURTHER_FROM_COIN: -0.2,
     }
 
     reward_sum = 0
@@ -175,7 +188,7 @@ def get_custom_events(event_map) -> List[str]:
     if event_map[e.KILLED_OPPONENT] == 2:
         custom_events.append(DOUBLE_KILL)
 
-    if event_map[e.COIN_COLLECTED] == 2:
+    if event_map[e.COIN_COLLECTED] == 4:
         custom_events.append(DOUBLE_COIN)
 
     return custom_events

@@ -3,6 +3,7 @@ import pickle
 import random
 
 import numpy as np
+import scipy as sp
 
 ACTIONS = ['UP', 'RIGHT', 'DOWN', 'LEFT', 'WAIT', 'BOMB']
 
@@ -12,7 +13,7 @@ EPSILON_START_VALUE = 1.0
 EPSILON_END_VALUE = 0.01
 
 MAX_GAME_STEPS = 401
-NUMBER_EPISODES = 10000
+NUMBER_EPISODES = 100
 
 # IAUU softmax policy
 TAU = 5
@@ -44,7 +45,7 @@ def setup(self):
             # train weights entirely new based on specific weight setup
             set_weights(self)
 
-        self.epsilon = EPSILON_START_VALUE
+        self.epsilon = get_epsilon
 
         if EPSILON_STRATEGY == "GREEDY":
             # epsilon is constant
@@ -59,9 +60,24 @@ def setup(self):
             self.model = pickle.load(file)
 
 
+def get_epsilon(time):
+    A = 0.6
+    B = 0.2
+    C = 0.1
+
+    standardized_time = (time - A * NUMBER_EPISODES) / (B * NUMBER_EPISODES)
+    cosh = np.cosh(np.exp(-standardized_time))
+    epsilon = 1. - (1 / cosh + (time * C / NUMBER_EPISODES))
+
+    if epsilon < 0:
+        return 0
+    elif epsilon > 1:
+        return 1
+    return epsilon
+
+
 def set_weights(self):
     self.model = np.zeros((self.number_of_features, 6))
-
     self.model[:, 0:4] = np.random.uniform(0.7, 1, (self.number_of_features, 4))
     self.model[:, 4:6] = np.random.uniform(0, 0.2, (self.number_of_features, 2))
 
@@ -77,10 +93,6 @@ def act(self, game_state: dict) -> str:
     """
 
     # computation of Q-values
-    # assumptions for value approximation of Q:
-    # 1. weights \beta_a are stored in a matrix column-wise -> multiplication of state_features with that matrix
-    #    leads to an array
-    # 2. weights \beta_a are stored in the same order as defined in ACTIONS
     state_features = state_to_features(game_state)
     weights = self.model
     Q_sa = np.argmax(np.matmul(state_features.T, weights))
@@ -88,21 +100,19 @@ def act(self, game_state: dict) -> str:
 
     if self.train:
         if EPSILON_STRATEGY == "GREEDY_DECAY_SOFTMAX":
-            # IAUU exploration
-            # improved epsilon-greedy strategy: uses softmax instead of uniform dist
-
+            # IAUU exploration - improved epsilon-greedy strategy: uses softmax instead of uniform dist
             # calculation of probabilities for actions
             numerator = np.exp(Q_sa / TAU)
             denominator = np.sum(numerator)
             probabilities = numerator / denominator
             return np.random.choice([argmax_Q, np.random.choice(ACTIONS, p=probabilities)],
-                                    p=[1 - self.epsilon,
-                                       self.epsilon])
+                                    p=[1 - self.epsilon(game_state["round"]),
+                                       self.epsilon(game_state["round"])])
         else:
             # uses uniform probability to pick an action with probability epsilon
             return np.random.choice([argmax_Q, np.random.choice(ACTIONS)],
-                                    p=[1 - self.epsilon,
-                                       self.epsilon])
+                                    p=[1 - self.epsilon(game_state["round"]),
+                                       self.epsilon(game_state["round"])])
 
     self.logger.debug("Querying model for action.")
     return argmax_Q
@@ -120,6 +130,8 @@ def state_to_features(game_state: dict) -> np.array:
     :param game_state:  A dictionary describing the current game board.
     :return X: A np.array of features
     """
+
+    # TODO: Manhattan metric
 
     # This is the dict before the game begins and after it ends
     if game_state is None:
@@ -139,6 +151,7 @@ def state_to_features(game_state: dict) -> np.array:
     explosion_map = game_state['explosion_map']
 
     # max distance equals length of diagonal of field
+    # TODO Manhattan
     max_dist = np.linalg.norm(np.array([1, 1]) - game_state['field'].shape)
 
     # distance to others
