@@ -135,7 +135,6 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
         pickle.dump(self.model, file)
 
     # append_data_to_csv(self.csv_filename, last_game_state['round'], self.reward_per_epoch)
-    # self.epsilon -= self.decay_rate
     reset_events(self)
 
 

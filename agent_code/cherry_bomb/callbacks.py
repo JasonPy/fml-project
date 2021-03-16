@@ -6,16 +6,17 @@ from scipy.spatial.distance import cityblock
 
 ACTIONS = ['UP', 'RIGHT', 'DOWN', 'LEFT', 'WAIT', 'BOMB']
 
-# hyperparamters / training config
-EPSILON_STRATEGY = "GREEDY_DECAY"  # GREEDY / GREEDY_DECAY_SOFTMAX
+# hyperparameters / training config
+EPSILON_STRATEGY = "GREEDY_DECAY_EXPONENTIAL"  # GREEDY_DECAY_LINEAR / GREEDY
 EPSILON_START_VALUE = 1.0
 EPSILON_END_VALUE = 0.01
 
-MAX_GAME_STEPS = 401
-NUMBER_EPISODES = 1000
-
+SOFTMAX = False  # define whether the argmax or the softmax is used during training
 # IAUU softmax policy
 TAU = 5
+
+MAX_GAME_STEPS = 401
+NUMBER_EPISODES = 100
 
 
 def setup(self):
@@ -45,14 +46,7 @@ def setup(self):
             # train weights entirely new based on specific weight setup
             set_weights(self)
 
-        self.epsilon = get_epsilon
-
-        if EPSILON_STRATEGY == "GREEDY":
-            # epsilon is constant
-            self.decay_rate = 0
-        else:
-            # epsilon decays
-            self.decay_rate = (EPSILON_START_VALUE - EPSILON_END_VALUE) / NUMBER_EPISODES
+        set_epsilon(self)
 
     else:
         self.logger.info("Loading model from saved state.")
@@ -60,15 +54,30 @@ def setup(self):
             self.model = pickle.load(file)
 
 
-def get_epsilon(time):
-    exploration = 0.6
-    slope = 0.2
-    decay = 0.1
+def set_epsilon(self):
+    if EPSILON_STRATEGY == "GREEDY":
+        self.epsilon = epsilon_decay(0)
+    elif EPSILON_STRATEGY == "GREEDY_DECAY_LINEAR":
+        self.epsilon = epsilon_decay((EPSILON_START_VALUE - EPSILON_END_VALUE) / NUMBER_EPISODES)
+    elif EPSILON_STRATEGY == "GREEDY_DECAY_EXPONENTIAL":
+        self.epsilon = stretched_exponential_decay
 
-    standardized_time = (time - exploration * NUMBER_EPISODES) / (slope * NUMBER_EPISODES)
+
+def epsilon_decay(decay_rate):
+    def decrease_epsilon(time):
+        return EPSILON_START_VALUE - time * decay_rate
+
+    return decrease_epsilon
+
+
+def stretched_exponential_decay(time):
+    A = 0.6
+    B = 0.2
+    C = 0.1
+
+    standardized_time = (time - A * NUMBER_EPISODES) / (B * NUMBER_EPISODES)
     cosh = np.cosh(np.exp(-standardized_time))
-    epsilon = 1. - (1 / cosh + (time * decay / NUMBER_EPISODES))
-
+    epsilon = 1. - (1 / cosh + (time * C / NUMBER_EPISODES))
     if epsilon < 0:
         return 0
     elif epsilon > 1:
@@ -99,7 +108,7 @@ def act(self, game_state: dict) -> str:
     argmax_Q = ACTIONS[Q_sa]
 
     if self.train:
-        if EPSILON_STRATEGY == "GREEDY_DECAY_SOFTMAX":
+        if SOFTMAX:
             # IAUU exploration - improved epsilon-greedy strategy: uses softmax instead of uniform dist
             # calculation of probabilities for actions
             numerator = np.exp(Q_sa / TAU)
