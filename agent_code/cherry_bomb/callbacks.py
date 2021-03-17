@@ -195,7 +195,6 @@ def state_to_features(game_state: dict) -> np.array:
     pos = np.asarray(game_state['self'][3])
     coins = np.asarray(game_state['coins'])
     others = np.asarray(game_state['others'])
-    explosion_map = game_state['explosion_map']
 
     # max distance equals length of diagonal of field
     max_dist = cityblock(np.array([1, 1]), game_state['field'].shape)

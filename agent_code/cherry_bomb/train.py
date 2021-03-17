@@ -14,7 +14,7 @@ from scipy.spatial.distance import cityblock
 from agent_code.training_data.train_data_utils import read_train_data
 import events as e
 
-from .callbacks import state_to_features, TRANSFORMER
+from callbacks import state_to_features, TRANSFORMER
 
 
 # assign each action e scalar value
@@ -33,7 +33,7 @@ Transition = namedtuple('Transition',
 
 # Hyper parameters
 TRANSITION_HISTORY_SIZE = 4096  # keep last transitions
-USE_TRAIN_SET = True  # use enemy transitions
+USE_TRAIN_SET = True  # use training set for pre-learning
 GAMMA = 0.95  # discount value
 
 # Custom events
