@@ -1,5 +1,6 @@
 import os
 import pickle
+import time
 
 import numpy as np
 from scipy.spatial.distance import cityblock
@@ -13,8 +14,7 @@ EPSILON_START_VALUE = 1.0
 EPSILON_END_VALUE = 0.01
 
 SOFTMAX = False  # define whether the argmax or the softmax is used during training
-# IAUU softmax policy
-TAU = 5
+TAU = 5  # for softmax policy
 
 MAX_GAME_STEPS = 401
 NUMBER_EPISODES = 100
@@ -35,8 +35,7 @@ def setup(self):
     :param self: This object is passed to all callbacks and you can set arbitrary values.
     """
 
-    # TODO: read PCA file for mask
-    self.number_of_features = 26
+    self.number_of_features = 1475
 
     # load transformer if feature selection has already been done
     if os.path.isfile("transformer.pt"):
@@ -71,20 +70,20 @@ def set_epsilon(self):
 
 
 def epsilon_decay(decay_rate):
-    def decrease_epsilon(time):
-        return EPSILON_START_VALUE - time * decay_rate
+    def decrease_epsilon(t):
+        return EPSILON_START_VALUE - t * decay_rate
 
     return decrease_epsilon
 
 
-def stretched_exponential_decay(time):
+def stretched_exponential_decay(t):
     A = 0.6
     B = 0.2
     C = 0.1
 
-    standardized_time = (time - A * NUMBER_EPISODES) / (B * NUMBER_EPISODES)
+    standardized_time = (t - A * NUMBER_EPISODES) / (B * NUMBER_EPISODES)
     cosh = np.cosh(np.exp(-standardized_time))
-    epsilon = 1. - (1 / cosh + (time * C / NUMBER_EPISODES))
+    epsilon = 1. - (1 / cosh + (t * C / NUMBER_EPISODES))
     if epsilon < 0:
         return 0
     elif epsilon > 1:
@@ -146,17 +145,45 @@ def state_to_features(game_state: dict) -> np.array:
     :param game_state:  A dictionary describing the current game board.
     :return X: A np.array of features
     """
+    # start = time.time()
 
     # This is the dict before the game begins and after it ends
     if game_state is None:
         return None
 
-    # feature vector (initially a list)
-    X = []
+    # field is kept transposed due to using x,y coordinates for other channels
+    field_channel = game_state['field'].flatten()
 
-    # access game_state and retrieve information
-    rnd = game_state['round']
-    step = game_state['step']
+    opponent_channel = np.zeros(game_state['field'].shape)
+    for i in game_state['others']:
+        opponent_channel[i[3]] = 1
+    opponent_channel = opponent_channel.flatten()
+
+    bomb_channel = np.zeros(game_state['field'].shape)
+    for i in game_state['bombs']:
+        bomb_channel[i[0]] = i[1]
+    bomb_channel = bomb_channel.flatten()
+
+    explosion_map_channel = game_state['explosion_map'].flatten()
+
+    coin_channel = np.zeros(game_state['field'].shape)
+    for i in game_state['coins']:
+        coin_channel[i] = 1
+    coin_channel = coin_channel.flatten()
+
+    state_as_features = np.stack(
+        [field_channel, bomb_channel, explosion_map_channel, coin_channel, opponent_channel]).reshape(-1)
+
+    # feature vector (initially a list)
+    features = []  # np.empty(26)
+
+    features.append(game_state['round'])
+    features.append(game_state['step'])
+
+    # append score and if laying bomb is possible
+    features.append(game_state['self'][1])
+    features.append(int(game_state['self'][2]))
+
     field = game_state['field'].T
     bombs = np.asarray(game_state['bombs'])
     pos = np.asarray(game_state['self'][3])
@@ -167,9 +194,9 @@ def state_to_features(game_state: dict) -> np.array:
     # max distance equals length of diagonal of field
     max_dist = cityblock(np.array([1, 1]), game_state['field'].shape)
 
-    # round and step
-    X.append(rnd)
-    X.append(step)
+    # append own position
+    features.append(pos[0])
+    features.append(pos[1])
 
     # distance to others
     others_dists = [max_dist + 1] * 3
@@ -178,7 +205,7 @@ def state_to_features(game_state: dict) -> np.array:
             dist = cityblock(np.asarray(others[i, 3]), pos)
             others_dists[i] = dist
         others_dists = np.sort(others_dists).tolist()
-    X += others_dists
+    features += others_dists
 
     # distance to bombs
     bomb_dists = [max_dist + 1] * 4
@@ -187,7 +214,7 @@ def state_to_features(game_state: dict) -> np.array:
             dist = cityblock(np.asarray(bombs[i, 0]), pos)
             bomb_dists[i] = dist
         bomb_dists = np.sort(bomb_dists).tolist()
-    X += bomb_dists
+    features += bomb_dists
 
     # danger zone to determine if agent would get hit by bombs
     danger_zone = []
@@ -221,7 +248,7 @@ def state_to_features(game_state: dict) -> np.array:
             danger_zone.append(0)
     d = [0, 0, 0, 0]
     d[:len(danger_zone)] = np.sort(danger_zone)
-    X += d
+    features += d
 
     # distance to nearest crate
     crate_indices = np.argwhere(field == 1)
@@ -229,9 +256,9 @@ def state_to_features(game_state: dict) -> np.array:
     if crate_indices.shape[0] > 0:
         for i in range(crate_indices.shape[0]):
             crate_dists.append(cityblock(crate_indices[i], pos))
-        X.append(np.min(crate_dists))
+        features.append(np.min(crate_dists))
     else:
-        X.append(max_dist + 1)  # set to max dist
+        features.append(max_dist + 1)  # set to max dist
 
     # distance / direction to nearest coin
     coin_dists = []
@@ -239,68 +266,73 @@ def state_to_features(game_state: dict) -> np.array:
         for i in range(len(coins)):
             dist = cityblock(np.asarray(coins[i]), pos)
             coin_dists.append(dist)
-        X.append(np.min(coin_dists))
+        features.append(np.min(coin_dists))
 
         # determine coin direction
         coin_dir = np.sign(coins[np.argmin(coin_dists)] - pos)
-        X.append(coin_dir[0])
-        X.append(coin_dir[1])
+        features.append(coin_dir[0])
+        features.append(coin_dir[1])
     else:
-        X.append(max_dist + 1)  # set to max dist
-        X.append(0)  # no coin direction
-        X.append(0)
+        features.append(max_dist + 1)  # set to max dist
+        features.append(0)  # no coin direction
+        features.append(0)
 
     # prevent invalid actions
     # tile to the right
     if pos[0] + 1 > field.shape[0]:
-        X.append(-1)
+        features.append(-1)
     else:
-        X.append(field[pos[0] + 1, pos[1]])
+        features.append(field[pos[0] + 1, pos[1]])
 
     # tile to the left
     if pos[0] - 1 < field.shape[0]:
-        X.append(-1)
+        features.append(-1)
     else:
-        X.append(field[pos[0] - 1, pos[1]])
+        features.append(field[pos[0] - 1, pos[1]])
 
     # tile below
     if pos[1] + 1 > field.shape[1]:
-        X.append(-1)
+        features.append(-1)
     else:
-        X.append(field[pos[0], pos[1] + 1])
+        features.append(field[pos[0], pos[1] + 1])
 
     # tile above
     if pos[1] - 1 < field.shape[1]:
-        X.append(-1)
+        features.append(-1)
     else:
-        X.append(field[pos[0], pos[1] - 1])
+        features.append(field[pos[0], pos[1] - 1])
 
     # check explosion map
     # tile to the right
     if pos[0] + 1 > field.shape[0]:
-        X.append(0)
+        features.append(0)
     else:
-        X.append(explosion_map[pos[0] + 1, pos[1]])
+        features.append(explosion_map[pos[0] + 1, pos[1]])
 
     # tile to the left
     if pos[0] - 1 < field.shape[0]:
-        X.append(0)
+        features.append(0)
     else:
-        X.append(explosion_map[pos[0] - 1, pos[1]])
+        features.append(explosion_map[pos[0] - 1, pos[1]])
 
     # tile below
     if pos[1] + 1 > field.shape[1]:
-        X.append(0)
+        features.append(0)
     else:
-        X.append(explosion_map[pos[0], pos[1] + 1])
+        features.append(explosion_map[pos[0], pos[1] + 1])
 
     # tile above
     if pos[1] - 1 < explosion_map.shape[1]:
-        X.append(0)
+        features.append(0)
     else:
-        X.append(explosion_map[pos[0], pos[1] - 1])
+        features.append(explosion_map[pos[0], pos[1] - 1])
 
     # aggressiveness
-    X.append(step * others.shape[0])
+    features.append(game_state['step'] * others.shape[0])
 
-    return np.array(X)
+    # end = time.time()
+    # print(end - start)
+    if TRANSFORMER:
+        return TRANSFORMER.transform(np.concatenate((state_as_features, np.array(features))))
+    else:
+        return np.concatenate((state_as_features, np.array(features)))
