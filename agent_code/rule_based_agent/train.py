@@ -1,20 +1,12 @@
-import pickle
-import random
 import numpy as np
-from datetime import datetime
 
-import csv
 from collections import namedtuple, deque
 from typing import List
 from enum import Enum
 from agent_code.cherry_bomb.callbacks import state_to_features
 from agent_code.cherry_bomb.train import reward_from_events, reset_events, get_custom_events, Action
 
-from agent_code.train_data_utils import save_train_data
-
-from sklearn.linear_model import SGDRegressor
-from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import GridSearchCV
+from agent_code.training_data.train_data_utils import save_train_data
 
 import events as e
 
@@ -51,7 +43,7 @@ def setup_training(self):
     :param self: This object is passed to all callbacks and you can set arbitrary values.
     """
     # # prepare output files
-    base_dir = "../resources/"
+    base_dir = "../training_data/"
     self.train_data_path = base_dir + 'train_data2.npy'
     # self.csv_features_filename = base_dir + "TS_features_03-16-2021, 19-01-39.csv"
     # self.csv_rewards_filename = base_dir + "TS_rewards" + "_" + datetime_str + ".csv"

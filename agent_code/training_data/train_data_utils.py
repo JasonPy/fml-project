@@ -23,6 +23,7 @@ def save_train_data(train_list, path):
 
 def read_train_data(path):
     train_data = np.load(path)
+
     rewards = train_data[:, 0]
     actions = train_data[:, 1]
     feature_length = train_data.shape[1] - 2  # -2 because of rewards and actions

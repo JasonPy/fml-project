@@ -11,11 +11,10 @@ from enum import Enum
 from sklearn.linear_model import SGDRegressor
 from sklearn.preprocessing import StandardScaler
 from scipy.spatial.distance import cityblock
-from agent_code.train_data_utils import read_train_data
+from agent_code.training_data.train_data_utils import read_train_data
 import events as e
 
 from .callbacks import state_to_features, TRANSFORMER
-from .callbacks import ACTIONS
 
 
 # assign each action e scalar value
@@ -65,7 +64,7 @@ def setup_training(self):
 
     # load pre-collected training data
     if USE_TRAIN_SET:
-        pre_train_agent("../resources/train_data.npy", 1000, batch_gradient_descent)
+        pre_train_agent("../training_data/train_data.npy", 1000, batch_gradient_descent)
 
     # prepare output files
     base_dir = "./logs/"
