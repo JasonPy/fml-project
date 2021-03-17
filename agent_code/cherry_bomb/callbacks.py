@@ -17,7 +17,7 @@ SOFTMAX = False  # define whether the argmax or the softmax is used during train
 TAU = 5  # for softmax policy
 
 MAX_GAME_STEPS = 401
-NUMBER_EPISODES = 100
+NUMBER_EPISODES = 1000
 
 
 def setup(self):
@@ -35,7 +35,7 @@ def setup(self):
     :param self: This object is passed to all callbacks and you can set arbitrary values.
     """
 
-    self.number_of_features = 1475
+    self.number_of_features = 1464
 
     # load transformer if feature selection has already been done
     if os.path.isfile("transformer.pt"):
@@ -143,7 +143,7 @@ def state_to_features(game_state: dict) -> np.array:
     what it contains.
 
     :param game_state:  A dictionary describing the current game board.
-    :return X: A np.array of features
+    :return features: A np.array of features
     """
     # start = time.time()
 
@@ -156,7 +156,7 @@ def state_to_features(game_state: dict) -> np.array:
 
     opponent_channel = np.zeros(game_state['field'].shape)
     for i in game_state['others']:
-        opponent_channel[i[3]] = 1
+        opponent_channel[i[3]] = 1 if i[2] else -1
     opponent_channel = opponent_channel.flatten()
 
     bomb_channel = np.zeros(game_state['field'].shape)
@@ -260,75 +260,15 @@ def state_to_features(game_state: dict) -> np.array:
     else:
         features.append(max_dist + 1)  # set to max dist
 
-    # distance / direction to nearest coin
+    # distance to nearest coin
     coin_dists = []
     if coins.size > 0:
         for i in range(len(coins)):
             dist = cityblock(np.asarray(coins[i]), pos)
             coin_dists.append(dist)
         features.append(np.min(coin_dists))
-
-        # determine coin direction
-        coin_dir = np.sign(coins[np.argmin(coin_dists)] - pos)
-        features.append(coin_dir[0])
-        features.append(coin_dir[1])
     else:
         features.append(max_dist + 1)  # set to max dist
-        features.append(0)  # no coin direction
-        features.append(0)
-
-    # prevent invalid actions
-    # tile to the right
-    if pos[0] + 1 > field.shape[0]:
-        features.append(-1)
-    else:
-        features.append(field[pos[0] + 1, pos[1]])
-
-    # tile to the left
-    if pos[0] - 1 < field.shape[0]:
-        features.append(-1)
-    else:
-        features.append(field[pos[0] - 1, pos[1]])
-
-    # tile below
-    if pos[1] + 1 > field.shape[1]:
-        features.append(-1)
-    else:
-        features.append(field[pos[0], pos[1] + 1])
-
-    # tile above
-    if pos[1] - 1 < field.shape[1]:
-        features.append(-1)
-    else:
-        features.append(field[pos[0], pos[1] - 1])
-
-    # check explosion map
-    # tile to the right
-    if pos[0] + 1 > field.shape[0]:
-        features.append(0)
-    else:
-        features.append(explosion_map[pos[0] + 1, pos[1]])
-
-    # tile to the left
-    if pos[0] - 1 < field.shape[0]:
-        features.append(0)
-    else:
-        features.append(explosion_map[pos[0] - 1, pos[1]])
-
-    # tile below
-    if pos[1] + 1 > field.shape[1]:
-        features.append(0)
-    else:
-        features.append(explosion_map[pos[0], pos[1] + 1])
-
-    # tile above
-    if pos[1] - 1 < explosion_map.shape[1]:
-        features.append(0)
-    else:
-        features.append(explosion_map[pos[0], pos[1] - 1])
-
-    # aggressiveness
-    features.append(game_state['step'] * others.shape[0])
 
     # end = time.time()
     # print(end - start)
