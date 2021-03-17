@@ -10,11 +10,12 @@ from enum import Enum
 
 from sklearn.linear_model import SGDRegressor
 from sklearn.preprocessing import StandardScaler
-from sklearn.pipeline import make_pipeline
+from scipy.spatial.distance import cityblock
 
 import events as e
 from .callbacks import state_to_features
 from .callbacks import ACTIONS
+
 
 # assign each action e scalar value
 class Action(Enum):
@@ -31,15 +32,15 @@ Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
 
 # Hyper parameters
-TRANSITION_HISTORY_SIZE = 400  # keep only ... last transitions
+TRANSITION_HISTORY_SIZE = 1024  # keep only ... last transitions
 RECORD_ENEMY_TRANSITIONS = 0.  # record enemy transitions with probability ...
-GAMMA = 0.8  # discount value
+GAMMA = 0.95  # discount value
 
 # Custom events
 DOUBLE_KILL = "DOUBLE_KILL"
 DOUBLE_COIN = "DOUBLE_COIN"
 LAST_AGENT_ALIVE = "LAST_AGENT_ALIVE"
-IN_SAFE_SPOT = "IN_SAFE_SPOT"
+# IN_SAFE_SPOT = "IN_SAFE_SPOT"
 CLOSER_TO_OPPONENT = "CLOSER_TO_OPPONENT"
 CLOSER_TO_COIN = "CLOSER_TO_COIN"
 FURTHER_FROM_OPPONENT = "FURTHER_FROM_OPPONENT"
@@ -59,6 +60,9 @@ def setup_training(self):
     self.event_map = dict.fromkeys([e.KILLED_OPPONENT, e.COIN_COLLECTED], 0)
     self.reward_per_epoch = 0
     self.number_of_epoch = 1
+    self.nearest_opponent = None
+    self.nearest_coin = None
+    self.last_survivor = False
 
     # prepare output files
     base_dir = "./logs/"
@@ -93,13 +97,13 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
         for ev in events:
             if ev in self.event_map:
                 self.event_map[ev] += 1
-        events = events + get_custom_events(self.event_map)
+        events += get_custom_events(self, old_game_state, new_game_state)
 
     # state_to_features is defined in callbacks.py
     self.transitions.append(Transition(state_to_features(
         old_game_state), self_action, state_to_features(new_game_state), reward_from_events(self, events)))
-    self.reward_per_epoch += reward_from_events(self, events)
 
+    self.reward_per_epoch += reward_from_events(self, events)
     # append_data_to_csv(self.csv_actions_filename, self.number_of_epoch, events)
 
 
@@ -131,8 +135,7 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
         pickle.dump(self.model, file)
 
     # append_data_to_csv(self.csv_filename, last_game_state['round'], self.reward_per_epoch)
-    # self.epsilon -= self.decay_rate
-    self.reward_per_epoch = 0
+    reset_events(self)
 
 
 def reward_from_events(self, events: List[str]) -> int:
@@ -181,17 +184,79 @@ def reward_from_events(self, events: List[str]) -> int:
     return reward_sum
 
 
-def get_custom_events(event_map) -> List[str]:
+def get_custom_events(self, old_game_state: dict, new_game_state: dict) -> List[str]:
     # TODO: more generic by using state to get amount of players
     custom_events = []
 
-    if event_map[e.KILLED_OPPONENT] == 2:
+    if self.event_map[e.KILLED_OPPONENT] == 2:
         custom_events.append(DOUBLE_KILL)
 
-    if event_map[e.COIN_COLLECTED] == 4:
+    if self.event_map[e.COIN_COLLECTED] == 4:
         custom_events.append(DOUBLE_COIN)
 
+    # check if agent is the last survivor
+    if len(new_game_state['others']) < 1 and self.last_survivor is False:
+        self.last_survivor = True
+        custom_events.append(LAST_AGENT_ALIVE)
+
+    # Check if distance to nearest opponent has evolved or decreased
+    if len(old_game_state['others']) > 0:
+        if self.nearest_opponent is None:
+            # first step - no distances yet
+            min_dist = np.inf
+            for o in old_game_state['others']:
+                dist = cityblock(np.asarray(o[3]), np.asarray(old_game_state['self'][3]))
+                if dist < min_dist:
+                    min_dist = dist
+            self.nearest_opponent = min_dist
+        else:
+            # calculate new distances and collect rewards
+            self_pos = np.asarray(new_game_state['self'][3])
+            is_closer = False
+            for o in new_game_state['others']:
+                if not is_closer:
+                    o = np.asarray(o)
+                    dist = cityblock(np.asarray(o[3]), self_pos)
+
+                    if dist < self.nearest_opponent:
+                        is_closer = True
+                        self.nearest_opponent = dist
+                        custom_events.append(CLOSER_TO_OPPONENT)
+            if not is_closer:
+                custom_events.append(FURTHER_FROM_OPPONENT)
+
+    # Check if distance to nearest coin has evolved or decreased
+    if len(old_game_state['coins']) > 0:
+        if self.nearest_coin is None:
+            # first step - no distances yet
+            min_dist = np.inf
+            for c in old_game_state['coins']:
+                dist = cityblock(np.asarray(c), np.asarray(old_game_state['self'][3]))
+                if dist < min_dist:
+                    min_dist = dist
+            self.nearest_coin = min_dist
+        else:
+            # calculate new distances and collect rewards
+            self_pos = np.asarray(new_game_state['self'][3])
+            is_closer = False
+            for c in new_game_state['coins']:
+                if not is_closer:
+                    dist = cityblock(np.asarray(c), self_pos)
+                    if dist < self.nearest_coin:
+                        is_closer = True
+                        self.nearest_coin = dist
+                        custom_events.append(CLOSER_TO_COIN)
+            if not is_closer:
+                custom_events.append(FURTHER_FROM_COIN)
+
     return custom_events
+
+
+def reset_events(self):
+    self.reward_per_epoch = 0
+    self.nearest_opponent = None
+    self.nearest_coin = None
+    self.last_survivor = False
 
 
 def stochastic_gradient_descent(self, alpha=0.001, epochs=10000):

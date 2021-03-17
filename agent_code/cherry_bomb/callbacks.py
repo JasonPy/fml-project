@@ -1,22 +1,22 @@
 import os
 import pickle
-import random
 
 import numpy as np
-import scipy as sp
+from scipy.spatial.distance import cityblock
 
 ACTIONS = ['UP', 'RIGHT', 'DOWN', 'LEFT', 'WAIT', 'BOMB']
 
-# hyperparamters / training config
-EPSILON_STRATEGY = "GREEDY_DECAY"  # GREEDY / GREEDY_DECAY_SOFTMAX
+# hyperparameters / training config
+EPSILON_STRATEGY = "GREEDY_DECAY_EXPONENTIAL"  # GREEDY_DECAY_LINEAR / GREEDY
 EPSILON_START_VALUE = 1.0
 EPSILON_END_VALUE = 0.01
 
-MAX_GAME_STEPS = 401
-NUMBER_EPISODES = 100
-
+SOFTMAX = False  # define whether the argmax or the softmax is used during training
 # IAUU softmax policy
 TAU = 5
+
+MAX_GAME_STEPS = 401
+NUMBER_EPISODES = 100
 
 
 def setup(self):
@@ -34,7 +34,8 @@ def setup(self):
     :param self: This object is passed to all callbacks and you can set arbitrary values.
     """
 
-    self.number_of_features = 24
+    # TODO: read PCA file for mask
+    self.number_of_features = 26
 
     if self.train:
         if os.path.isfile("my-saved-model.pt"):
@@ -45,14 +46,7 @@ def setup(self):
             # train weights entirely new based on specific weight setup
             set_weights(self)
 
-        self.epsilon = get_epsilon
-
-        if EPSILON_STRATEGY == "GREEDY":
-            # epsilon is constant
-            self.decay_rate = 0
-        else:
-            # epsilon decays
-            self.decay_rate = (EPSILON_START_VALUE - EPSILON_END_VALUE) / NUMBER_EPISODES
+        set_epsilon(self)
 
     else:
         self.logger.info("Loading model from saved state.")
@@ -60,7 +54,23 @@ def setup(self):
             self.model = pickle.load(file)
 
 
-def get_epsilon(time):
+def set_epsilon(self):
+    if EPSILON_STRATEGY == "GREEDY":
+        self.epsilon = epsilon_decay(0)
+    elif EPSILON_STRATEGY == "GREEDY_DECAY_LINEAR":
+        self.epsilon = epsilon_decay((EPSILON_START_VALUE - EPSILON_END_VALUE) / NUMBER_EPISODES)
+    elif EPSILON_STRATEGY == "GREEDY_DECAY_EXPONENTIAL":
+        self.epsilon = stretched_exponential_decay
+
+
+def epsilon_decay(decay_rate):
+    def decrease_epsilon(time):
+        return EPSILON_START_VALUE - time * decay_rate
+
+    return decrease_epsilon
+
+
+def stretched_exponential_decay(time):
     A = 0.6
     B = 0.2
     C = 0.1
@@ -68,7 +78,6 @@ def get_epsilon(time):
     standardized_time = (time - A * NUMBER_EPISODES) / (B * NUMBER_EPISODES)
     cosh = np.cosh(np.exp(-standardized_time))
     epsilon = 1. - (1 / cosh + (time * C / NUMBER_EPISODES))
-
     if epsilon < 0:
         return 0
     elif epsilon > 1:
@@ -99,7 +108,7 @@ def act(self, game_state: dict) -> str:
     argmax_Q = ACTIONS[Q_sa]
 
     if self.train:
-        if EPSILON_STRATEGY == "GREEDY_DECAY_SOFTMAX":
+        if SOFTMAX:
             # IAUU exploration - improved epsilon-greedy strategy: uses softmax instead of uniform dist
             # calculation of probabilities for actions
             numerator = np.exp(Q_sa / TAU)
@@ -131,8 +140,6 @@ def state_to_features(game_state: dict) -> np.array:
     :return X: A np.array of features
     """
 
-    # TODO: Manhattan metric
-
     # This is the dict before the game begins and after it ends
     if game_state is None:
         return None
@@ -151,26 +158,29 @@ def state_to_features(game_state: dict) -> np.array:
     explosion_map = game_state['explosion_map']
 
     # max distance equals length of diagonal of field
-    # TODO Manhattan
-    max_dist = np.linalg.norm(np.array([1, 1]) - game_state['field'].shape)
+    max_dist = cityblock(np.array([1, 1]), game_state['field'].shape)
+
+    # round and step
+    X.append(rnd)
+    X.append(step)
 
     # distance to others
     others_dists = [max_dist + 1] * 3
     if others.shape[0] > 0:
         for i in range(len(others)):
-            dist = np.linalg.norm(np.asarray(others[i, 3]) - pos)
+            dist = cityblock(np.asarray(others[i, 3]), pos)
             others_dists[i] = dist
         others_dists = np.sort(others_dists).tolist()
-    X = X + others_dists
+    X += others_dists
 
     # distance to bombs
     bomb_dists = [max_dist + 1] * 4
     if bombs.size > 0:
         for i in range(len(bombs)):
-            dist = np.linalg.norm(np.asarray(bombs[i, 0]) - pos)
+            dist = cityblock(np.asarray(bombs[i, 0]), pos)
             bomb_dists[i] = dist
         bomb_dists = np.sort(bomb_dists).tolist()
-    X = X + bomb_dists
+    X += bomb_dists
 
     # danger zone to determine if agent would get hit by bombs
     danger_zone = []
@@ -204,12 +214,14 @@ def state_to_features(game_state: dict) -> np.array:
             danger_zone.append(0)
     d = [0, 0, 0, 0]
     d[:len(danger_zone)] = np.sort(danger_zone)
-    X = X + d
+    X += d
 
     # distance to nearest crate
     crate_indices = np.argwhere(field == 1)
-    if crate_indices.size > 0:
-        crate_dists = np.linalg.norm(crate_indices - pos, axis=1)
+    crate_dists = []
+    if crate_indices.shape[0] > 0:
+        for i in range(crate_indices.shape[0]):
+            crate_dists.append(cityblock(crate_indices[i], pos))
         X.append(np.min(crate_dists))
     else:
         X.append(max_dist + 1)  # set to max dist
@@ -218,7 +230,7 @@ def state_to_features(game_state: dict) -> np.array:
     coin_dists = []
     if coins.size > 0:
         for i in range(len(coins)):
-            dist = np.linalg.norm(np.asarray(coins[i]) - pos)
+            dist = cityblock(np.asarray(coins[i]), pos)
             coin_dists.append(dist)
         X.append(np.min(coin_dists))
 
