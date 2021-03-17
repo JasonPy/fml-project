@@ -48,6 +48,12 @@ def setup(self):
             # train weights from existing file
             with open("my-saved-model.pt", "rb") as file:
                 self.model = pickle.load(file)
+
+        elif os.path.isfile("pre-trained-model.pt"):
+            # train weights from existing file
+            with open("pre-trained-model.pt", "rb") as file:
+                self.model = pickle.load(file)
+
         else:
             # train weights entirely new based on specific weight setup
             set_weights(self)

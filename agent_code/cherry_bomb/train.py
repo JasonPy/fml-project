@@ -13,7 +13,8 @@ from sklearn.preprocessing import StandardScaler
 from scipy.spatial.distance import cityblock
 from agent_code.train_data_utils import read_train_data
 import events as e
-from .callbacks import state_to_features
+
+from .callbacks import state_to_features, TRANSFORMER
 from .callbacks import ACTIONS
 
 
@@ -32,8 +33,8 @@ Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
 
 # Hyper parameters
-TRANSITION_HISTORY_SIZE = 1024  # keep only ... last transitions
-RECORD_ENEMY_TRANSITIONS = 0.  # record enemy transitions with probability ...
+TRANSITION_HISTORY_SIZE = 4096  # keep last transitions
+USE_TRAIN_SET = True  # use enemy transitions
 GAMMA = 0.95  # discount value
 
 # Custom events
@@ -60,10 +61,12 @@ def setup_training(self):
     self.event_map = dict.fromkeys([e.KILLED_OPPONENT, e.COIN_COLLECTED], 0)
     self.reward_per_epoch = 0
     self.number_of_epoch = 1
-    self.nearest_opponent = None
-    self.nearest_coin = None
     self.last_survivor = False
-    read_train_data("../resources/train_data.npy")
+
+    # load pre-collected training data
+    if USE_TRAIN_SET:
+        pre_train_agent("../resources/train_data.npy", 1000, batch_gradient_descent)
+
     # prepare output files
     base_dir = "./logs/"
     now = datetime.now()
@@ -127,12 +130,11 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
         last_game_state), last_action, None, reward))
 
     # stochastic_gradient_descent(self, alpha=0.0001, epochs=10000)
-    batch_gradient_descent(self)
+    mini_batch_gradient_descent(self)
 
     self.number_of_epoch += 1
     # Store the model
-    with open("my-saved-model.pt", "wb") as file:
-        pickle.dump(self.model, file)
+    save_model(self, "my-saved-model.pt")
 
     # append_data_to_csv(self.csv_filename, last_game_state['round'], self.reward_per_epoch)
     reset_events(self)
@@ -256,12 +258,10 @@ def get_custom_events(self, old_game_state: dict, new_game_state: dict) -> List[
 
 def reset_events(self):
     self.reward_per_epoch = 0
-    self.nearest_opponent = None
-    self.nearest_coin = None
     self.last_survivor = False
 
 
-def stochastic_gradient_descent(self, alpha=0.001, epochs=10000):
+def stochastic_gradient_descent(self, alpha=0.0001, epochs=10000):
     states, actions, next_states, rewards = get_transitions_as_matrices(self)
 
     # train for each action a model with SGD
@@ -283,7 +283,7 @@ def stochastic_gradient_descent(self, alpha=0.001, epochs=10000):
             self.model[:, action.value] = lin_reg.coef_
 
 
-def batch_gradient_descent(self, alpha=0.0001, epochs=10000, batch_size=64):
+def mini_batch_gradient_descent(self, alpha=0.0001, epochs=10000, batch_size=256):
     states, actions, next_states, rewards = get_transitions_as_matrices(self)
 
     if actions.shape[0] > batch_size:
@@ -316,7 +316,7 @@ def batch_gradient_descent(self, alpha=0.0001, epochs=10000, batch_size=64):
             self.model[:, action.value] = beta
 
 
-def gradient_descent(self, learning_rate=0.0001, epochs=1000):
+def batch_gradient_descent(self, learning_rate=0.0001, epochs=1000):
     actionFeatureMap, actionRewardMap = get_transitions_as_matrices(self)
 
     for action, value in actionFeatureMap.items():
@@ -393,6 +393,22 @@ def append_data_to_csv(filename, epoch, data):
     with open(filename, 'a', newline='') as file:
         csv_writer = csv.writer(file)
         csv_writer.writerow([epoch, data])
+
+
+def save_model(self, file_name):
+    with open(file_name, "wb") as file:
+        pickle.dump(self.model, file)
+
+
+def pre_train_agent(self, file, iterations, gd_method):
+    rewards, actions, old_state_features, new_state_features = read_train_data(file)
+
+    old_state_features = TRANSFORMER.transform(standardize(old_state_features))
+    new_state_features = TRANSFORMER.transform(standardize(new_state_features))
+
+    for i in range(iterations):
+        gd_method(self, rewards, actions, old_state_features, new_state_features)
+    save_model(self, "pre-trained-model.pt")
 
 
 def standardize(X):
