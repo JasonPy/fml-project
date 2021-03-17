@@ -8,9 +8,8 @@ from collections import namedtuple, deque
 from typing import List
 from enum import Enum
 from agent_code.cherry_bomb.callbacks import state_to_features
-from agent_code.cherry_bomb.train import reward_from_events
-from agent_code.cherry_bomb.train import get_custom_events
-from agent_code.cherry_bomb.train import Action
+from agent_code.cherry_bomb.train import reward_from_events, reset_events, get_custom_events, Action
+
 from agent_code.train_data_utils import save_train_data
 
 from sklearn.linear_model import SGDRegressor
@@ -53,7 +52,7 @@ def setup_training(self):
     """
     # # prepare output files
     base_dir = "../resources/"
-    self.train_data_path = base_dir + 'train_data.npy'
+    self.train_data_path = base_dir + 'train_data2.npy'
     # self.csv_features_filename = base_dir + "TS_features_03-16-2021, 19-01-39.csv"
     # self.csv_rewards_filename = base_dir + "TS_rewards" + "_" + datetime_str + ".csv"
     #
@@ -63,6 +62,14 @@ def setup_training(self):
     # self.feature_writer = csv.writer(open(self.csv_features_filename, 'a', newline=''), delimiter=',',
     #                                  quoting=csv.QUOTE_NONE)
     self.train_list = []
+
+    self.transitions = deque(maxlen=TRANSITION_HISTORY_SIZE)
+    self.event_map = dict.fromkeys([e.KILLED_OPPONENT, e.COIN_COLLECTED], 0)
+    self.reward_per_epoch = 0
+    self.number_of_epoch = 1
+    self.nearest_opponent = None
+    self.nearest_coin = None
+    self.last_survivor = False
 
 
 def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_state: dict, events: List[str]):
@@ -87,7 +94,7 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
         for ev in events:
             if ev in self.event_map:
                 self.event_map[ev] += 1
-        events = events + get_custom_events(self.event_map)
+        events = events + get_custom_events(self, old_game_state, new_game_state)
 
     old_state_features = state_to_features(old_game_state)
     new_state_features = state_to_features(new_game_state)
@@ -118,6 +125,9 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
     features = np.append(reward_action_array, features)
     self.train_list.append(features)
 
-    save_train_data(self.train_list, self.train_data_path)
+    self.number_of_epoch += 1
+    if (self.number_of_epoch == 4000):
+        save_train_data(self.train_list, self.train_data_path)
+        self.train_list = []
 
-    self.train_list = []
+    reset_events(self)

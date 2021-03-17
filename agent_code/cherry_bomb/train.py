@@ -11,7 +11,7 @@ from enum import Enum
 from sklearn.linear_model import SGDRegressor
 from sklearn.preprocessing import StandardScaler
 from scipy.spatial.distance import cityblock
-
+from agent_code.train_data_utils import read_train_data
 import events as e
 from .callbacks import state_to_features
 from .callbacks import ACTIONS
@@ -63,7 +63,7 @@ def setup_training(self):
     self.nearest_opponent = None
     self.nearest_coin = None
     self.last_survivor = False
-
+    read_train_data("../resources/train_data.npy")
     # prepare output files
     base_dir = "./logs/"
     now = datetime.now()
@@ -191,63 +191,65 @@ def get_custom_events(self, old_game_state: dict, new_game_state: dict) -> List[
     if self.event_map[e.KILLED_OPPONENT] == 2:
         custom_events.append(DOUBLE_KILL)
 
+        # prevent throwing KILLED_OPPONENT multiple times
+        self.event_map[e.KILLED_OPPONENT] += 1
+
     if self.event_map[e.COIN_COLLECTED] == 4:
         custom_events.append(DOUBLE_COIN)
 
+        # prevent throwing COIN_COLLECTED multiple times
+        self.event_map[e.COIN_COLLECTED] += 1
+
     # check if agent is the last survivor
-    if len(new_game_state['others']) < 1 and self.last_survivor is False:
+    if len(new_game_state['others']) < 1 and len(new_game_state['others']) < len(
+            old_game_state['others']) and self.last_survivor is False:
         self.last_survivor = True
         custom_events.append(LAST_AGENT_ALIVE)
 
     # Check if distance to nearest opponent has evolved or decreased
     if len(old_game_state['others']) > 0:
-        if self.nearest_opponent is None:
-            # first step - no distances yet
-            min_dist = np.inf
-            for o in old_game_state['others']:
-                dist = cityblock(np.asarray(o[3]), np.asarray(old_game_state['self'][3]))
-                if dist < min_dist:
-                    min_dist = dist
-            self.nearest_opponent = min_dist
-        else:
-            # calculate new distances and collect rewards
-            self_pos = np.asarray(new_game_state['self'][3])
-            is_closer = False
-            for o in new_game_state['others']:
-                if not is_closer:
-                    o = np.asarray(o)
-                    dist = cityblock(np.asarray(o[3]), self_pos)
+        # first step - no distances yet
+        min_dist = np.inf
+        for o in old_game_state['others']:
+            dist = cityblock(np.asarray(o[3]), np.asarray(old_game_state['self'][3]))
+            if dist < min_dist:
+                min_dist = dist
 
-                    if dist < self.nearest_opponent:
-                        is_closer = True
-                        self.nearest_opponent = dist
-                        custom_events.append(CLOSER_TO_OPPONENT)
-            if not is_closer:
-                custom_events.append(FURTHER_FROM_OPPONENT)
+        # calculate new distances and collect rewards
+        self_pos = np.asarray(new_game_state['self'][3])
+        is_closer = False
+        for o in new_game_state['others']:
+            o = np.asarray(o)
+            dist = cityblock(np.asarray(o[3]), self_pos)
+
+            if dist < min_dist:
+                is_closer = True
+                custom_events.append(CLOSER_TO_OPPONENT)
+                break
+        if not is_closer:
+            custom_events.append(FURTHER_FROM_OPPONENT)
 
     # Check if distance to nearest coin has evolved or decreased
     if len(old_game_state['coins']) > 0:
-        if self.nearest_coin is None:
-            # first step - no distances yet
-            min_dist = np.inf
-            for c in old_game_state['coins']:
-                dist = cityblock(np.asarray(c), np.asarray(old_game_state['self'][3]))
-                if dist < min_dist:
-                    min_dist = dist
-            self.nearest_coin = min_dist
-        else:
-            # calculate new distances and collect rewards
-            self_pos = np.asarray(new_game_state['self'][3])
-            is_closer = False
-            for c in new_game_state['coins']:
-                if not is_closer:
-                    dist = cityblock(np.asarray(c), self_pos)
-                    if dist < self.nearest_coin:
-                        is_closer = True
-                        self.nearest_coin = dist
-                        custom_events.append(CLOSER_TO_COIN)
-            if not is_closer:
-                custom_events.append(FURTHER_FROM_COIN)
+
+        # first step - no distances yet
+        min_dist = np.inf
+        for c in old_game_state['coins']:
+            dist = cityblock(np.asarray(c), np.asarray(old_game_state['self'][3]))
+            if dist < min_dist:
+                min_dist = dist
+
+        # calculate new distances and collect rewards
+        self_pos = np.asarray(new_game_state['self'][3])
+        is_closer = False
+        for c in new_game_state['coins']:
+            dist = cityblock(np.asarray(c), self_pos)
+            if dist < min_dist:
+                is_closer = True
+                custom_events.append(CLOSER_TO_COIN)
+                break
+        if not is_closer:
+            custom_events.append(FURTHER_FROM_COIN)
 
     return custom_events
 
