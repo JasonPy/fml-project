@@ -5,6 +5,7 @@ import numpy as np
 from scipy.spatial.distance import cityblock
 
 ACTIONS = ['UP', 'RIGHT', 'DOWN', 'LEFT', 'WAIT', 'BOMB']
+TRANSFORMER = None
 
 # hyperparameters / training config
 EPSILON_STRATEGY = "GREEDY_DECAY_EXPONENTIAL"  # GREEDY_DECAY_LINEAR / GREEDY
@@ -36,6 +37,12 @@ def setup(self):
 
     # TODO: read PCA file for mask
     self.number_of_features = 26
+
+    # load transformer if feature selection has already been done
+    if os.path.isfile("transformer.pt"):
+        with open("transformer.pt", "rb") as file:
+            global TRANSFORMER
+            TRANSFORMER = pickle.load(file)
 
     if self.train:
         if os.path.isfile("my-saved-model.pt"):
