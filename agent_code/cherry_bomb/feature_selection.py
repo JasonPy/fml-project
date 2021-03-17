@@ -26,10 +26,7 @@ def feature_selection(selection_algorithm, threshold=0.8):
     if selection_algorithm == "PCA":
         # note: PCA does not support sparse matrices - use TruncatedSVD or SparsePCA in that case
         # linear separation
-        initial_transformer = PCA()
-        variance_ratio_sum = initial_transformer.fit(X).explained_variance_ratio_.cumsum()
-        n_components = np.argwhere(variance_ratio_sum > threshold)[0]
-        transformer = PCA(n_components=n_components)
+        transformer = PCA(n_components=threshold)
 
     elif selection_algorithm == "Kernel_PCA":
         # non-linear separation
