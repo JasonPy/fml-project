@@ -14,7 +14,7 @@ from scipy.spatial.distance import cityblock
 from agent_code.training_data.train_data_utils import read_train_data
 import events as e
 
-from callbacks import state_to_features, TRANSFORMER
+from .callbacks import state_to_features, get_transformer
 
 
 # assign each action e scalar value
@@ -93,6 +93,10 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
     """
     self.logger.debug(
         f'Encountered game event(s) {", ".join(map(repr, events))} in step {new_game_state["step"]}')
+
+    # Prevents adding the step 0
+    if self_action is None:
+        return
 
     # Add custom events
     if len(events) > 0:
@@ -365,16 +369,15 @@ def get_transitions_as_matrices(self):
     """
 
     for transition in self.transitions:
-        if transition.action is not None:
-            actions.append(Action[transition.action].value)
-            states.append(transition.state)
+        actions.append(Action[transition.action].value)
+        states.append(transition.state[0, :])
 
-            if transition.next_state is not None:
-                next_states.append(transition.next_state)
-            else:
-                # TODO: another strategy for filling next_state
-                next_states.append(np.zeros(self.number_of_features))
-            rewards.append(transition.reward)
+        if transition.next_state is not None:
+            next_states.append(transition.next_state[0, :])
+        else:
+            # TODO: another strategy for filling next_state
+            next_states.append(np.zeros(self.number_of_features))
+        rewards.append(transition.reward)
 
     actions = np.array(actions)
     states = np.array(states)
@@ -401,9 +404,10 @@ def save_model(self, file_name):
 
 def pre_train_agent(self, file, iterations, gd_method):
     rewards, actions, old_state_features, new_state_features = read_train_data(file)
-
-    old_state_features = TRANSFORMER.transform(standardize(old_state_features))
-    new_state_features = TRANSFORMER.transform(standardize(new_state_features))
+    transformer = get_transformer()
+    X = standardize(old_state_features)
+    old_state_features = get_transformer().transform(X[1:10,:])
+    new_state_features = get_transformer().transform(standardize(new_state_features))
 
     for i in range(iterations):
         gd_method(self, rewards, actions, old_state_features, new_state_features)

@@ -116,7 +116,7 @@ def act(self, game_state: dict) -> str:
     # computation of Q-values
     state_features = state_to_features(game_state)
     weights = self.model
-    Q_sa = np.argmax(np.matmul(state_features.T, weights))
+    Q_sa = np.argmax(np.matmul(state_features, weights))
     argmax_Q = ACTIONS[Q_sa]
 
     if self.train:
@@ -278,6 +278,10 @@ def state_to_features(game_state: dict) -> np.array:
     # end = time.time()
     # print(end - start)
     if TRANSFORMER:
-        return TRANSFORMER.transform(np.concatenate((state_as_features, np.array(features))))
+        return TRANSFORMER.transform(np.concatenate((state_as_features, np.array(features))).reshape(1, -1))
     else:
         return np.concatenate((state_as_features, np.array(features)))
+
+
+def get_transformer():
+    return TRANSFORMER
