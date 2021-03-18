@@ -38,11 +38,11 @@ def setup(self):
     self.number_of_features = 1464
 
     # load transformer if feature selection has already been done
-    if os.path.isfile("transformer.pt"):
-        with open("transformer.pt", "rb") as file:
+    if os.path.isfile("../transformers/rba_coin_700k_PCA.pt"):
+        with open("../transformers/rba_coin_700k_PCA.pt", "rb") as file:
             global TRANSFORMER
             TRANSFORMER = pickle.load(file)
-
+        self.number_of_features = TRANSFORMER.n_components_
     if self.train:
         if os.path.isfile("my-saved-model.pt"):
             # train weights from existing file

@@ -62,16 +62,16 @@ def setup_training(self):
     self.number_of_epoch = 1
     self.last_survivor = False
 
-    # load pre-collected training data
-    if USE_TRAIN_SET:
-        pre_train_agent("../training_data/train_data.npy", 1000, batch_gradient_descent)
-
     # prepare output files
     base_dir = "./logs/"
     now = datetime.now()
-    datetime_str = now.strftime("%m-%d-%Y, %H-%M-%S")
-    self.csv_filename = base_dir + "rewards_per_epoch" + "_" + datetime_str + ".csv"
-    self.csv_actions_filename = base_dir + "actions" + "_" + datetime_str + ".csv"
+    self.datetime_str = now.strftime("%m-%d-%Y-%H-%M-%S")
+    self.csv_filename = base_dir + "rewards_per_epoch" + "_" + self.datetime_str + ".csv"
+    self.csv_actions_filename = base_dir + "actions" + "_" + self.datetime_str + ".csv"
+
+    # load pre-collected training data
+    if USE_TRAIN_SET:
+        pre_train_agent(self, "../training_data/train_data2.npy", 5000, mini_batch_gradient_descent)
 
 
 def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_state: dict, events: List[str]):
@@ -133,11 +133,11 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
         last_game_state), last_action, None, reward))
 
     # stochastic_gradient_descent(self, alpha=0.0001, epochs=10000)
-    mini_batch_gradient_descent(self)
+    mini_batch_gradient_descent(self, *get_transitions_as_matrices(self))
 
     self.number_of_epoch += 1
     # Store the model
-    save_model(self, "my-saved-model.pt")
+    save_model(self, f"../models/my-saved-model-{self.datetime_str}.pt")
 
     # append_data_to_csv(self.csv_filename, last_game_state['round'], self.reward_per_epoch)
     reset_events(self)
@@ -286,8 +286,9 @@ def stochastic_gradient_descent(self, alpha=0.0001, epochs=10000):
             self.model[:, action.value] = lin_reg.coef_
 
 
-def mini_batch_gradient_descent(self, alpha=0.0001, epochs=10000, batch_size=256):
-    states, actions, next_states, rewards = get_transitions_as_matrices(self)
+def mini_batch_gradient_descent(self, states, actions, next_states, rewards, alpha=0.0001, epochs=10000,
+                                batch_size=256):
+    # states, actions, next_states, rewards = get_transitions_as_matrices(self)
 
     if actions.shape[0] > batch_size:
         batch_indices = random.sample(range(0, actions.shape[0]), batch_size)
@@ -404,14 +405,14 @@ def save_model(self, file_name):
 
 def pre_train_agent(self, file, iterations, gd_method):
     rewards, actions, old_state_features, new_state_features = read_train_data(file)
-    transformer = get_transformer()
-    X = standardize(old_state_features)
-    old_state_features = get_transformer().transform(X[1:10,:])
+
+    old_state_features = get_transformer().transform(standardize(old_state_features))
     new_state_features = get_transformer().transform(standardize(new_state_features))
 
     for i in range(iterations):
-        gd_method(self, rewards, actions, old_state_features, new_state_features)
-    save_model(self, "pre-trained-model.pt")
+        gd_method(self, old_state_features, actions, new_state_features, rewards)
+        print(f"{i}/{iterations}")
+    save_model(self, f"../models/pre-trained-model-{self.datetime_str}.pt")
 
 
 def standardize(X):
