@@ -33,7 +33,7 @@ Transition = namedtuple('Transition',
 
 # Hyper parameters
 TRANSITION_HISTORY_SIZE = 4096  # keep last transitions
-USE_TRAIN_SET = True  # use training set for pre-learning
+USE_TRAIN_SET = False  # use training set for pre-learning
 GAMMA = 0.95  # discount value
 
 # Custom events
@@ -59,15 +59,13 @@ def setup_training(self):
     self.transitions = deque(maxlen=TRANSITION_HISTORY_SIZE)
     self.event_map = dict.fromkeys([e.KILLED_OPPONENT, e.COIN_COLLECTED], 0)
     self.reward_per_epoch = 0
-    self.number_of_epoch = 1
+    self.number_of_epoch = 0
     self.last_survivor = False
 
     # prepare output files
-    base_dir = "./logs/"
-    now = datetime.now()
-    self.datetime_str = now.strftime("%m-%d-%Y-%H-%M-%S")
-    self.csv_filename = base_dir + "rewards_per_epoch" + "_" + self.datetime_str + ".csv"
-    self.csv_actions_filename = base_dir + "actions" + "_" + self.datetime_str + ".csv"
+    self.datetime = datetime.now().strftime("%m-%d-%Y-%H-%M-%S")
+    self.csv_rewards = f"./logs/rewards_{self.datetime}.csv"
+    self.csv_actions = f"./logs/actions_{self.datetime}.csv"
 
     # load pre-collected training data
     if USE_TRAIN_SET:
@@ -106,11 +104,12 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
         events += get_custom_events(self, old_game_state, new_game_state)
 
     # state_to_features is defined in callbacks.py
+    rewards = reward_from_events(self, events)
     self.transitions.append(Transition(state_to_features(
-        old_game_state), self_action, state_to_features(new_game_state), reward_from_events(self, events)))
+        old_game_state), self_action, state_to_features(new_game_state), rewards))
 
-    self.reward_per_epoch += reward_from_events(self, events)
-    # append_data_to_csv(self.csv_actions_filename, self.number_of_epoch, events)
+    self.reward_per_epoch += rewards
+    append_data_to_csv(self.csv_actions, self.number_of_epoch, events)
 
 
 def end_of_round(self, last_game_state: dict, last_action: str, events: List[str]):
@@ -135,11 +134,14 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
     # stochastic_gradient_descent(self, alpha=0.0001, epochs=10000)
     mini_batch_gradient_descent(self, *get_transitions_as_matrices(self))
 
-    self.number_of_epoch += 1
     # Store the model
-    save_model(self, f"../models/my-saved-model-{self.datetime_str}.pt")
+    save_model(self, f"../models/my-saved-model-{self.datetime}.pt")
 
-    # append_data_to_csv(self.csv_filename, last_game_state['round'], self.reward_per_epoch)
+    # save rewards in csv
+    append_data_to_csv(self.csv_rewards, self.number_of_epoch, self.reward_per_epoch)
+    self.number_of_epoch += 1
+
+    # reset custom events
     reset_events(self)
 
 
@@ -264,9 +266,7 @@ def reset_events(self):
     self.last_survivor = False
 
 
-def stochastic_gradient_descent(self, alpha=0.0001, epochs=10000):
-    states, actions, next_states, rewards = get_transitions_as_matrices(self)
-
+def stochastic_gradient_descent(self, states, actions, next_states, rewards, alpha=0.0001, epochs=10000):
     # train for each action a model with SGD
     for action in Action:
         mask_of_action = (actions == action.value)
@@ -288,8 +288,6 @@ def stochastic_gradient_descent(self, alpha=0.0001, epochs=10000):
 
 def mini_batch_gradient_descent(self, states, actions, next_states, rewards, alpha=0.0001, epochs=10000,
                                 batch_size=256):
-    # states, actions, next_states, rewards = get_transitions_as_matrices(self)
-
     if actions.shape[0] > batch_size:
         batch_indices = random.sample(range(0, actions.shape[0]), batch_size)
         states = states[batch_indices, :]
@@ -320,32 +318,6 @@ def mini_batch_gradient_descent(self, states, actions, next_states, rewards, alp
             self.model[:, action.value] = beta
 
 
-def batch_gradient_descent(self, learning_rate=0.0001, epochs=1000):
-    actionFeatureMap, actionRewardMap = get_transitions_as_matrices(self)
-
-    for action, value in actionFeatureMap.items():
-        X = np.array(value)
-
-        # centralize and standardize the features X
-        scaler = StandardScaler()
-        X = scaler.fit_transform(X)
-
-        y_t = np.array(actionRewardMap[action])
-
-        beta = self.action_models[action]
-        n = len(X)
-
-        for i in epochs:
-            y_pred = X * beta
-            # calculate the derivative of the loss function with respect to beta
-            D_beta = (-2 / n) * sum((X.T * (y_t - y_pred)), axis=0)
-
-            # update the weights
-            beta -= learning_rate * D_beta
-
-        self.action_models[action] = beta
-
-
 def td_q_learning(self, next_state, reward, gamma=GAMMA):
     return reward + gamma * np.max(np.matmul(next_state, self.model))
 
@@ -359,15 +331,14 @@ def n_step_td_q_learning(self, next_state, t, n, gamma=GAMMA):
 
 
 def get_transitions_as_matrices(self):
-    actions = []
-    states = []
-    next_states = []
-    rewards = []
-
     """
     Transition 0 isn't relevant -> excluded
     Last transition -> next state nonexistent -> not relevant -> no estimation for y required bc reward is known in last round
     """
+    actions = []
+    states = []
+    next_states = []
+    rewards = []
 
     for transition in self.transitions:
         actions.append(Action[transition.action].value)
@@ -412,7 +383,7 @@ def pre_train_agent(self, file, iterations, gd_method):
     for i in range(iterations):
         gd_method(self, old_state_features, actions, new_state_features, rewards)
         print(f"{i}/{iterations}")
-    save_model(self, f"../models/pre-trained-model-{self.datetime_str}.pt")
+    save_model(self, f"../models/pre-trained-model-{self.datetime}.pt")
 
 
 def standardize(X):

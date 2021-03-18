@@ -1,8 +1,7 @@
 import os
 import pickle
-import time
-
 import numpy as np
+
 from scipy.spatial.distance import cityblock
 
 ACTIONS = ['UP', 'RIGHT', 'DOWN', 'LEFT', 'WAIT', 'BOMB']
@@ -12,12 +11,11 @@ TRANSFORMER = None
 EPSILON_STRATEGY = "GREEDY_DECAY_EXPONENTIAL"  # GREEDY_DECAY_LINEAR / GREEDY
 EPSILON_START_VALUE = 1.0
 EPSILON_END_VALUE = 0.01
-
 SOFTMAX = False  # define whether the argmax or the softmax is used during training
 TAU = 5  # for softmax policy
 
 MAX_GAME_STEPS = 401
-NUMBER_EPISODES = 1000
+NUMBER_EPISODES = 1
 
 
 def setup(self):
@@ -39,23 +37,28 @@ def setup(self):
 
     # load transformer if feature selection has already been done
     if os.path.isfile("../transformers/rba_coin_700k_PCA.pt"):
+        self.logger.info("Load and set transformer.")
         with open("../transformers/rba_coin_700k_PCA.pt", "rb") as file:
             global TRANSFORMER
             TRANSFORMER = pickle.load(file)
+
         self.number_of_features = TRANSFORMER.n_components_
+
     if self.train:
+        self.logger.info("Entering training mode.")
+
         if os.path.isfile("my-saved-model.pt"):
-            # train weights from existing file
+            self.logger.info("Train based on existing model.")
             with open("my-saved-model.pt", "rb") as file:
                 self.model = pickle.load(file)
 
         elif os.path.isfile("pre-trained-model.pt"):
-            # train weights from existing file
+            self.logger.info("Train based on pre-trained model.")
             with open("pre-trained-model.pt", "rb") as file:
                 self.model = pickle.load(file)
 
         else:
-            # train weights entirely new based on specific weight setup
+            self.logger.info("Setting initial weights from scratch.")
             set_weights(self)
 
         set_epsilon(self)
@@ -98,6 +101,9 @@ def stretched_exponential_decay(t):
 
 
 def set_weights(self):
+    """
+    Setting up weights randomly.
+    """
     self.model = np.zeros((self.number_of_features, 6))
     self.model[:, 0:4] = np.random.uniform(0.7, 1, (self.number_of_features, 4))
     self.model[:, 4:6] = np.random.uniform(0, 0.2, (self.number_of_features, 2))
@@ -148,23 +154,26 @@ def state_to_features(game_state: dict) -> np.array:
     which is a dictionary. Consult 'get_state_for_agent' in environment.py to see
     what it contains.
 
+    For distance computations the Manhattan distance is used.
+
     :param game_state:  A dictionary describing the current game board.
     :return features: A np.array of features
     """
-    # start = time.time()
 
     # This is the dict before the game begins and after it ends
     if game_state is None:
         return None
 
-    # field is kept transposed due to using x,y coordinates for other channels
+    # field and data fileds are kept transposed
     field_channel = game_state['field'].flatten()
 
+    # saving game filed indicating, if an opponent is present on a tile
     opponent_channel = np.zeros(game_state['field'].shape)
     for i in game_state['others']:
         opponent_channel[i[3]] = 1 if i[2] else -1
     opponent_channel = opponent_channel.flatten()
 
+    # map of bombs on field
     bomb_channel = np.zeros(game_state['field'].shape)
     for i in game_state['bombs']:
         bomb_channel[i[0]] = i[1]
@@ -172,16 +181,18 @@ def state_to_features(game_state: dict) -> np.array:
 
     explosion_map_channel = game_state['explosion_map'].flatten()
 
+    # indicate where coins are on field
     coin_channel = np.zeros(game_state['field'].shape)
     for i in game_state['coins']:
         coin_channel[i] = 1
     coin_channel = coin_channel.flatten()
 
+    # stack all channels and flat them
     state_as_features = np.stack(
         [field_channel, bomb_channel, explosion_map_channel, coin_channel, opponent_channel]).reshape(-1)
 
-    # feature vector (initially a list)
-    features = []  # np.empty(26)
+    # custom feature vector (initially a list)
+    features = []
 
     features.append(game_state['round'])
     features.append(game_state['step'])
@@ -275,8 +286,7 @@ def state_to_features(game_state: dict) -> np.array:
     else:
         features.append(max_dist + 1)  # set to max dist
 
-    # end = time.time()
-    # print(end - start)
+    # apply feature transform
     if TRANSFORMER:
         return TRANSFORMER.transform(np.concatenate((state_as_features, np.array(features))).reshape(1, -1))
     else:
