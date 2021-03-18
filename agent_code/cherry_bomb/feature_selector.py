@@ -7,7 +7,7 @@ import argparse
 from sklearn.decomposition import PCA, KernelPCA
 from sklearn.preprocessing import StandardScaler
 
-from agent_code.training_data.train_data_utils import read_train_data
+from agent_code.training_data.train_data_utils import read_train_data, read_h5f
 
 IN_PATH = "../training_data"
 OUT_PATH = "../transformers"
@@ -22,7 +22,8 @@ def select_features(selection_algorithm, training_set, transform_file, threshold
     # load data from .npy files
     # take states and next_states as input variables for the algorithms to increase the amount of data
     # samples row-wise, features column-wise
-    rewards, actions, states, next_states = read_train_data(os.path.join(IN_PATH, f"{training_set}.npy"))
+    # TODO: read only states
+    rewards, actions, states, next_states = read_h5f(os.path.join(IN_PATH, f"{training_set}.h5"), "coin_collect_data")
     X = standardize(states)
 
     # selection algorithm
@@ -74,3 +75,4 @@ thold = args.thold
 # execute feature selection script
 print(f'Starting feature selection with args [{method}, {train_file}, {tform_file}, {thold}]')
 select_features(method, train_file, tform_file, thold)
+print(f'Finished feature selection')

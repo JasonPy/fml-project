@@ -11,7 +11,7 @@ from enum import Enum
 from sklearn.linear_model import SGDRegressor
 from sklearn.preprocessing import StandardScaler
 from scipy.spatial.distance import cityblock
-from agent_code.training_data.train_data_utils import read_train_data
+from agent_code.training_data.train_data_utils import read_train_data, read_h5f, read_rows_h5f
 import events as e
 
 from .callbacks import state_to_features, get_transformer
@@ -33,8 +33,10 @@ Transition = namedtuple('Transition',
 
 # Hyper parameters
 TRANSITION_HISTORY_SIZE = 4096  # keep last transitions
-USE_TRAIN_SET = False  # use training set for pre-learning
+USE_TRAIN_SET = True  # use training set for pre-learning
+TRAIN_FILE = "../training_data/h5f_train_data.h5"
 GAMMA = 0.95  # discount value
+
 
 # Custom events
 DOUBLE_KILL = "DOUBLE_KILL"
@@ -69,7 +71,7 @@ def setup_training(self):
 
     # load pre-collected training data
     if USE_TRAIN_SET:
-        pre_train_agent(self, "../training_data/train_data2.npy", 5000, mini_batch_gradient_descent)
+        pre_train_agent(self, TRAIN_FILE, 5000, mini_batch_gradient_descent)
 
 
 def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_state: dict, events: List[str]):
@@ -375,7 +377,7 @@ def save_model(self, file_name):
 
 
 def pre_train_agent(self, file, iterations, gd_method):
-    rewards, actions, old_state_features, new_state_features = read_train_data(file)
+    rewards, actions, old_state_features, new_state_features = read_h5f(file, "coin_collect_data")
 
     old_state_features = get_transformer().transform(standardize(old_state_features))
     new_state_features = get_transformer().transform(standardize(new_state_features))

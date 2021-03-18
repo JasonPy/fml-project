@@ -36,9 +36,9 @@ def setup(self):
     self.number_of_features = 1464
 
     # load transformer if feature selection has already been done
-    if os.path.isfile("../transformers/rba_coin_700k_PCA.pt"):
+    if os.path.isfile("../transformers/pca_tform.pt"):
         self.logger.info("Load and set transformer.")
-        with open("../transformers/rba_coin_700k_PCA.pt", "rb") as file:
+        with open("../transformers/pca_tform.pt", "rb") as file:
             global TRANSFORMER
             TRANSFORMER = pickle.load(file)
 
