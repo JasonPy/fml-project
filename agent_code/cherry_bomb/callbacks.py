@@ -190,7 +190,7 @@ def state_to_features(game_state: dict) -> np.array:
     features.append(game_state['self'][1])
     features.append(int(game_state['self'][2]))
 
-    field = game_state['field'].T
+    field = game_state['field']
     bombs = np.asarray(game_state['bombs'])
     pos = np.asarray(game_state['self'][3])
     coins = np.asarray(game_state['coins'])
