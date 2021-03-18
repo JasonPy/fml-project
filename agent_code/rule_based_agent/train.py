@@ -1,12 +1,16 @@
+import pickle
+import random
 import numpy as np
+from datetime import datetime
 
+import csv
 from collections import namedtuple, deque
 from typing import List
 from enum import Enum
 from agent_code.cherry_bomb.callbacks import state_to_features
 from agent_code.cherry_bomb.train import reward_from_events, reset_events, get_custom_events, Action
 
-from agent_code.training_data.train_data_utils import save_train_data
+from agent_code.training_data.train_data_utils import save_to_h5_file, read_h5f, read_rows_h5f
 
 import events as e
 
@@ -43,19 +47,11 @@ def setup_training(self):
     :param self: This object is passed to all callbacks and you can set arbitrary values.
     """
     # # prepare output files
-    base_dir = "../training_data/"
-    self.train_data_path = base_dir + 'train_data2.npy'
-    # self.csv_features_filename = base_dir + "TS_features_03-16-2021, 19-01-39.csv"
-    # self.csv_rewards_filename = base_dir + "TS_rewards" + "_" + datetime_str + ".csv"
-    #
     self.event_map = dict.fromkeys([e.KILLED_OPPONENT, e.COIN_COLLECTED], 0)
-    # self.reward_writer = csv.writer(open(self.csv_rewards_filename, 'a', newline=''), quoting=csv.QUOTE_NONE)
-    #
-    # self.feature_writer = csv.writer(open(self.csv_features_filename, 'a', newline=''), delimiter=',',
-    #                                  quoting=csv.QUOTE_NONE)
+
     self.train_list = []
 
-    self.transitions = deque(maxlen=TRANSITION_HISTORY_SIZE)
+    # read_rows_h5f('../training_data/h5f_train_data.h5', "coin_collect_data",[1, 1000, 2000 , 300 , 200000])
     self.event_map = dict.fromkeys([e.KILLED_OPPONENT, e.COIN_COLLECTED], 0)
     self.reward_per_epoch = 0
     self.number_of_epoch = 1
@@ -118,8 +114,12 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
     self.train_list.append(features)
 
     self.number_of_epoch += 1
-    if (self.number_of_epoch == 4000):
-        save_train_data(self.train_list, self.train_data_path)
+    print(self.number_of_epoch)
+    if (self.number_of_epoch % 10 == 0):
+        data = np.array(self.train_list)
+        size = data.shape[1]
+        # save_train_data(self.train_list, self.train_data_path)
+        save_to_h5_file('../training_data/h5f_train_data.h5', "coin_collect_data", data, size)
         self.train_list = []
 
     reset_events(self)
