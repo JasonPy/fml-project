@@ -15,7 +15,11 @@ SOFTMAX = False  # define whether the argmax or the softmax is used during train
 TAU = 5  # for softmax policy
 
 MAX_GAME_STEPS = 401
-NUMBER_EPISODES = 1
+NUMBER_EPISODES = 100
+
+# external file locations
+MODEL = "../models/my-model.pt"
+TFORM = "../transformers/my-transformer.pt"
 
 
 def setup(self):
@@ -33,12 +37,10 @@ def setup(self):
     :param self: This object is passed to all callbacks and you can set arbitrary values.
     """
 
-    self.number_of_features = 1464
-
     # load transformer if feature selection has already been done
-    if os.path.isfile("../transformers/pca_tform.pt"):
+    if os.path.isfile(TFORM):
         self.logger.info("Load and set transformer.")
-        with open("../transformers/pca_tform.pt", "rb") as file:
+        with open(TFORM, "rb") as file:
             global TRANSFORMER
             TRANSFORMER = pickle.load(file)
 
@@ -47,25 +49,16 @@ def setup(self):
     if self.train:
         self.logger.info("Entering training mode.")
 
-        if os.path.isfile("my-saved-model.pt"):
+        if os.path.isfile(MODEL):
             self.logger.info("Train based on existing model.")
-            with open("my-saved-model.pt", "rb") as file:
+            with open(MODEL, "rb") as file:
                 self.model = pickle.load(file)
-
-        elif os.path.isfile("pre-trained-model.pt"):
-            self.logger.info("Train based on pre-trained model.")
-            with open("pre-trained-model.pt", "rb") as file:
-                self.model = pickle.load(file)
-
-        else:
-            self.logger.info("Setting initial weights from scratch.")
-            set_weights(self)
 
         set_epsilon(self)
 
     else:
         self.logger.info("Loading model from saved state.")
-        with open("my-saved-model.pt", "rb") as file:
+        with open(MODEL, "rb") as file:
             self.model = pickle.load(file)
 
 
@@ -287,6 +280,7 @@ def state_to_features(game_state: dict) -> np.array:
         features.append(max_dist + 1)  # set to max dist
 
     # apply feature transform
+    # standardization applied via sklearn already
     if TRANSFORMER:
         return TRANSFORMER.transform(np.concatenate((state_as_features, np.array(features))).reshape(1, -1))
     else:

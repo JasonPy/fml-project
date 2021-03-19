@@ -2,7 +2,7 @@ import pickle
 import random
 import numpy as np
 from datetime import datetime
-
+from tqdm import tqdm
 import csv
 from collections import namedtuple, deque
 from typing import List
@@ -11,7 +11,6 @@ from enum import Enum
 from sklearn.linear_model import SGDRegressor
 from sklearn.preprocessing import StandardScaler
 from scipy.spatial.distance import cityblock
-from agent_code.training_data.train_data_utils import read_train_data, read_h5f, read_rows_h5f
 import events as e
 
 from .callbacks import state_to_features, get_transformer
@@ -33,10 +32,7 @@ Transition = namedtuple('Transition',
 
 # Hyper parameters
 TRANSITION_HISTORY_SIZE = 4096  # keep last transitions
-USE_TRAIN_SET = True  # use training set for pre-learning
-TRAIN_FILE = "../training_data/h5f_train_data.h5"
 GAMMA = 0.95  # discount value
-
 
 # Custom events
 DOUBLE_KILL = "DOUBLE_KILL"
@@ -70,8 +66,7 @@ def setup_training(self):
     self.csv_actions = f"./logs/actions_{self.datetime}.csv"
 
     # load pre-collected training data
-    if USE_TRAIN_SET:
-        pre_train_agent(self, TRAIN_FILE, 5000, mini_batch_gradient_descent)
+    # pre_train_agent(self, 100, stochastic_gradient_descent)
 
 
 def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_state: dict, events: List[str]):
@@ -111,7 +106,7 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
         old_game_state), self_action, state_to_features(new_game_state), rewards))
 
     self.reward_per_epoch += rewards
-    append_data_to_csv(self.csv_actions, self.number_of_epoch, events)
+    # append_data_to_csv(self.csv_actions, self.number_of_epoch, events)
 
 
 def end_of_round(self, last_game_state: dict, last_action: str, events: List[str]):
@@ -127,21 +122,19 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
     :param self: The same object that is passed to all of your callbacks.
     """
 
-    reward = reward_from_events(self, events)
     self.logger.debug(
         f'Encountered event(s) {", ".join(map(repr, events))} in final step')
+
+    reward = reward_from_events(self, events)
     self.transitions.append(Transition(state_to_features(
         last_game_state), last_action, None, reward))
-
-    # stochastic_gradient_descent(self, alpha=0.0001, epochs=10000)
-    mini_batch_gradient_descent(self, *get_transitions_as_matrices(self))
 
     # Store the model
     save_model(self, f"../models/my-saved-model-{self.datetime}.pt")
 
     # save rewards in csv
-    append_data_to_csv(self.csv_rewards, self.number_of_epoch, self.reward_per_epoch)
-    self.number_of_epoch += 1
+    # append_data_to_csv(self.csv_rewards, self.number_of_epoch, self.reward_per_epoch)
+    # self.number_of_epoch += 1
 
     # reset custom events
     reset_events(self)
@@ -268,58 +261,6 @@ def reset_events(self):
     self.last_survivor = False
 
 
-def stochastic_gradient_descent(self, states, actions, next_states, rewards, alpha=0.0001, epochs=10000):
-    # train for each action a model with SGD
-    for action in Action:
-        mask_of_action = (actions == action.value)
-
-        # check if action was performed
-        if np.sum(mask_of_action) > 0:
-            states_for_action = states[mask_of_action, :]
-            next_states_for_action = next_states[mask_of_action, :]
-            rewards_for_action = rewards[mask_of_action]
-
-            y_t = td_q_learning(self, next_states_for_action, rewards_for_action, GAMMA)
-
-            lin_reg = SGDRegressor(max_iter=epochs, learning_rate='optimal', alpha=alpha, tol=1e-3, fit_intercept=False,
-                                   warm_start=True)
-            lin_reg.fit(states_for_action, y_t, coef_init=self.model[:, action.value])
-
-            self.model[:, action.value] = lin_reg.coef_
-
-
-def mini_batch_gradient_descent(self, states, actions, next_states, rewards, alpha=0.0001, epochs=10000,
-                                batch_size=256):
-    if actions.shape[0] > batch_size:
-        batch_indices = random.sample(range(0, actions.shape[0]), batch_size)
-        states = states[batch_indices, :]
-        actions = actions[batch_indices]
-        next_states = next_states[batch_indices, :]
-        rewards = rewards[batch_indices]
-
-    for action in Action:
-        mask_of_action = (actions == action.value)
-
-        # check if action was performed
-        if np.sum(mask_of_action) > 0:
-            states_for_action = states[mask_of_action, :]
-            next_states_for_action = next_states[mask_of_action, :]
-            rewards_for_action = rewards[mask_of_action]
-
-            y_t = td_q_learning(self, next_states_for_action, rewards_for_action, GAMMA)
-            beta = self.model[:, action.value]
-
-            for i in range(epochs):
-                y_pred = np.matmul(states_for_action, beta)
-                # calculate the derivative of the loss function with respect to beta
-                y = (y_t - y_pred).reshape(y_t.shape[0], 1)
-                d_beta = (alpha / np.sum(mask_of_action)) * np.sum((states_for_action * y).T, axis=1)
-
-                # update the weights
-                beta += d_beta
-            self.model[:, action.value] = beta
-
-
 def td_q_learning(self, next_state, reward, gamma=GAMMA):
     return reward + gamma * np.max(np.matmul(next_state, self.model))
 
@@ -376,19 +317,5 @@ def save_model(self, file_name):
         pickle.dump(self.model, file)
 
 
-def pre_train_agent(self, file, iterations, gd_method):
-    rewards, actions, old_state_features, new_state_features = read_h5f(file, "coin_collect_data")
-
-    old_state_features = get_transformer().transform(standardize(old_state_features))
-    new_state_features = get_transformer().transform(standardize(new_state_features))
-
-    for i in range(iterations):
-        gd_method(self, old_state_features, actions, new_state_features, rewards)
-        print(f"{i}/{iterations}")
-    save_model(self, f"../models/pre-trained-model-{self.datetime}.pt")
-
-
-def standardize(X):
-    scaler = StandardScaler()
-    scaler.fit(X)
-    return scaler.transform(X)
+def standardize(features):
+    return StandardScaler().fit_transform(features)
