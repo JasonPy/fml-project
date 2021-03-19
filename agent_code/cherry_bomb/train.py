@@ -1,19 +1,27 @@
 import pickle
 import random
+
 import numpy as np
 from datetime import datetime
-from tqdm import tqdm
 import csv
 from collections import namedtuple, deque
 from typing import List
 from enum import Enum
 
-from sklearn.linear_model import SGDRegressor
 from sklearn.preprocessing import StandardScaler
 from scipy.spatial.distance import cityblock
 import events as e
 
 from .callbacks import state_to_features, get_transformer
+from .deep_q_net import DeepQNet
+
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import torch.nn.functional as F
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(device)
 
 
 # assign each action e scalar value
@@ -33,6 +41,9 @@ Transition = namedtuple('Transition',
 # Hyper parameters
 TRANSITION_HISTORY_SIZE = 4096  # keep last transitions
 GAMMA = 0.95  # discount value
+LEARNING_RATE = 0.001
+UPDATE_CYCLE = 5
+BATCH_SIZE = 64
 
 # Custom events
 DOUBLE_KILL = "DOUBLE_KILL"
@@ -65,7 +76,20 @@ def setup_training(self):
     self.csv_rewards = f"./logs/rewards_{self.datetime}.csv"
     self.csv_actions = f"./logs/actions_{self.datetime}.csv"
 
-    # load pre-collected training data
+    # init NN
+
+    # set random seed
+    random.seed(1)
+
+    # Q- Network
+    self.qnet_0 = DeepQNet(self.number_of_features).to(device)
+    self.qnet_1 = DeepQNet(self.number_of_features).to(device)
+
+    self.optimizer = optim.Adam(self.qnetwork_local.parameters(), lr=LEARNING_RATE)
+
+    # Initialize time step (for updating every UPDATE_EVERY steps)
+    self.update_step = 0
+
     # pre_train_agent(self, 100, stochastic_gradient_descent)
 
 
@@ -106,7 +130,14 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
         old_game_state), self_action, state_to_features(new_game_state), rewards))
 
     self.reward_per_epoch += rewards
-    # append_data_to_csv(self.csv_actions, self.number_of_epoch, events)
+
+    self.update_step += 1
+    if self.update_step % UPDATE_CYCLE == 0:
+        self.update_step = 0
+
+        if len(self.transitions) > BATCH_SIZE:
+            xp = sample_transitions(self)
+            self.learn(xp, GAMMA)
 
 
 def end_of_round(self, last_game_state: dict, last_action: str, events: List[str]):
@@ -273,35 +304,38 @@ def n_step_td_q_learning(self, next_state, t, n, gamma=GAMMA):
     return reward_sum + gamma ** n * np.max(np.matmul(transitions[t + n]['state'], self.model))
 
 
-def get_transitions_as_matrices(self):
+def sample_transitions(self):
     """
     Transition 0 isn't relevant -> excluded
     Last transition -> next state nonexistent -> not relevant -> no estimation for y required bc reward is known in last round
     """
-    actions = []
-    states = []
-    next_states = []
-    rewards = []
+    actions = np.empty(BATCH_SIZE)
+    states = np.empty((BATCH_SIZE, self.number_of_features))
+    next_states = np.empty((BATCH_SIZE, self.number_of_features))
+    rewards = np.empty(BATCH_SIZE)
 
-    for transition in self.transitions:
-        actions.append(Action[transition.action].value)
-        states.append(transition.state[0, :])
+    # use random samples of buffer
+    samples = random.sample(self.transitions, k=BATCH_SIZE)
 
-        if transition.next_state is not None:
-            next_states.append(transition.next_state[0, :])
+    for t in len(samples):
+        actions[t] = Action[samples[t].action].value
+        states[t, :] = samples[t].state[0, :]
+
+        if samples[t].next_state is not None:
+            next_states[t, :] = samples[t].next_state[0, :]
         else:
             # TODO: another strategy for filling next_state
-            next_states.append(np.zeros(self.number_of_features))
-        rewards.append(transition.reward)
+            next_states[t, :] = np.zeros(self.number_of_features)
+        rewards[t] = samples[t].reward
 
-    actions = np.array(actions)
-    states = np.array(states)
-    next_states = np.array(next_states)
-    rewards = np.array(rewards)
+    actions = torch.from_numpy(actions).float().to(device)
+    states = torch.from_numpy(states).float().to(device)
+    next_states = torch.from_numpy(next_states).float().to(device)
+    rewards = torch.from_numpy(rewards).float().to(device)
 
-    # standardize data
-    states = standardize(states)
-    next_states = standardize(next_states)
+    # TODO: standardize or normalize data?
+    # states = standardize(states)
+    # next_states = standardize(next_states)
 
     return states, actions, next_states, rewards
 
@@ -319,3 +353,10 @@ def save_model(self, file_name):
 
 def standardize(features):
     return StandardScaler().fit_transform(features)
+
+
+def sample(self, batch_size):
+    """
+    get random sample of size batch_size from xp-buffer
+    """
+    return random.sample(self.transitions, batch_size)
