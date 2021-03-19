@@ -36,7 +36,7 @@ def setup(self):
 
     :param self: This object is passed to all callbacks and you can set arbitrary values.
     """
-
+    self.number_of_features = 1464
     # load transformer if feature selection has already been done
     if os.path.isfile(TFORM):
         self.logger.info("Load and set transformer.")
@@ -55,6 +55,7 @@ def setup(self):
                 self.model = pickle.load(file)
 
         set_epsilon(self)
+        set_weights(self)
 
     else:
         self.logger.info("Loading model from saved state.")

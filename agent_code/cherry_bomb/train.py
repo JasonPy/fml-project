@@ -44,6 +44,7 @@ GAMMA = 0.95  # discount value
 LEARNING_RATE = 0.001
 UPDATE_CYCLE = 5
 BATCH_SIZE = 64
+TAU = 1e-3
 
 # Custom events
 DOUBLE_KILL = "DOUBLE_KILL"
@@ -82,10 +83,10 @@ def setup_training(self):
     random.seed(1)
 
     # Q- Network
-    self.qnet_0 = DeepQNet(self.number_of_features).to(device)
-    self.qnet_1 = DeepQNet(self.number_of_features).to(device)
+    self.qnet_0 = DeepQNet(self.number_of_features, 0).to(device)
+    self.qnet_target = DeepQNet(self.number_of_features, 0).to(device)
 
-    self.optimizer = optim.Adam(self.qnetwork_local.parameters(), lr=LEARNING_RATE)
+    self.optimizer = optim.Adam(self.qnet_0.parameters(), lr=LEARNING_RATE)
 
     # Initialize time step (for updating every UPDATE_EVERY steps)
     self.update_step = 0
@@ -137,7 +138,7 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
 
         if len(self.transitions) > BATCH_SIZE:
             xp = sample_transitions(self)
-            self.learn(xp, GAMMA)
+            learn(self, xp, GAMMA)
 
 
 def end_of_round(self, last_game_state: dict, last_action: str, events: List[str]):
@@ -161,7 +162,8 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
         last_game_state), last_action, None, reward))
 
     # Store the model
-    save_model(self, f"../models/my-saved-model-{self.datetime}.pt")
+    save_model(self, "../models/qnet_0", "../models/qnet_target")
+
 
     # save rewards in csv
     # append_data_to_csv(self.csv_rewards, self.number_of_epoch, self.reward_per_epoch)
@@ -287,6 +289,33 @@ def get_custom_events(self, old_game_state: dict, new_game_state: dict) -> List[
     return custom_events
 
 
+def learn(self, xp, GAMMA):
+    states, next_states, actions, rewards = xp
+
+    loss_criterion = torch.nn.MSELoss()
+    self.qnet_0.train()
+    self.qnet_target.eval()
+
+    predicted_targets = self.qnet_0(states).gather(1, actions)
+
+    labels_next = self.qnet_target(next_states).max(1)[0].unsqueeze(1)
+
+    labels = rewards + GAMMA * labels_next
+
+    loss = loss_criterion(predicted_targets, labels).to(device)
+    self.optimizer.zero_grad()
+    loss.backward()
+    self.optimizer.step()
+
+    update_target_net(self)
+
+
+def update_target_net(self):
+    for target_param, local_param in zip(self.qnet_target.parameters(),
+                                         self.qnet_0.parameters()):
+        target_param.data.copy_(TAU * local_param.data + (1 - TAU) * target_param.data)
+
+
 def reset_events(self):
     self.reward_per_epoch = 0
     self.last_survivor = False
@@ -309,26 +338,26 @@ def sample_transitions(self):
     Transition 0 isn't relevant -> excluded
     Last transition -> next state nonexistent -> not relevant -> no estimation for y required bc reward is known in last round
     """
-    actions = np.empty(BATCH_SIZE)
+    actions = np.empty((BATCH_SIZE, 1))
     states = np.empty((BATCH_SIZE, self.number_of_features))
     next_states = np.empty((BATCH_SIZE, self.number_of_features))
-    rewards = np.empty(BATCH_SIZE)
+    rewards = np.empty((BATCH_SIZE, 1))
 
     # use random samples of buffer
     samples = random.sample(self.transitions, k=BATCH_SIZE)
 
-    for t in len(samples):
+    for t in range(len(samples)):
         actions[t] = Action[samples[t].action].value
-        states[t, :] = samples[t].state[0, :]
+        states[t, :] = samples[t].state
 
         if samples[t].next_state is not None:
-            next_states[t, :] = samples[t].next_state[0, :]
+            next_states[t, :] = samples[t].next_state
         else:
             # TODO: another strategy for filling next_state
             next_states[t, :] = np.zeros(self.number_of_features)
         rewards[t] = samples[t].reward
 
-    actions = torch.from_numpy(actions).float().to(device)
+    actions = torch.from_numpy(actions).long().to(device)
     states = torch.from_numpy(states).float().to(device)
     next_states = torch.from_numpy(next_states).float().to(device)
     rewards = torch.from_numpy(rewards).float().to(device)
@@ -337,7 +366,7 @@ def sample_transitions(self):
     # states = standardize(states)
     # next_states = standardize(next_states)
 
-    return states, actions, next_states, rewards
+    return (states, next_states, actions, rewards)
 
 
 def append_data_to_csv(filename, epoch, data):
@@ -346,9 +375,9 @@ def append_data_to_csv(filename, epoch, data):
         csv_writer.writerow([epoch, data])
 
 
-def save_model(self, file_name):
-    with open(file_name, "wb") as file:
-        pickle.dump(self.model, file)
+def save_model(self, file_name, file_name_target):
+    torch.save(self.qnet_0.state_dict(), file_name)
+    torch.save(self.qnet_target.state_dict(), file_name_target)
 
 
 def standardize(features):

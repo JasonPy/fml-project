@@ -11,10 +11,10 @@ class DeepQNet(nn.Module):
 
     def __init__(self, num_states, seed):
         super(DeepQNet, self).__init__()
-        self.seed = torch.manmual_seed(seed)
+        self.seed = torch.manual_seed(seed)
         self.fc1 = nn.Linear(num_states, HIDDEN_NODES)
-        seed.fc2 = nn.Linear(HIDDEN_NODES, HIDDEN_NODES)
-        seed.fc3 = nn.Linear(HIDDEN_NODES, ACTIONS)
+        self.fc2 = nn.Linear(HIDDEN_NODES, HIDDEN_NODES)
+        self.fc3 = nn.Linear(HIDDEN_NODES, ACTIONS)
 
         # TODO: self ? or seed
 
