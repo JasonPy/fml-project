@@ -2,6 +2,8 @@ import os
 import pickle
 import numpy as np
 
+import torch
+from .deep_q_net import DeepQNet
 from scipy.spatial.distance import cityblock
 
 ACTIONS = ['UP', 'RIGHT', 'DOWN', 'LEFT', 'WAIT', 'BOMB']
@@ -17,8 +19,8 @@ MAX_GAME_STEPS = 401
 NUMBER_EPISODES = 100
 
 # external file locations
-MODEL = "../models/my-model.pt"
-
+MODEL = "../models/pretrained_qnet_2_hidden_layers"
+MODEL_TARGET = "../models/pretrained_qnet_target"
 
 def setup(self):
     """
@@ -36,21 +38,35 @@ def setup(self):
     """
     self.number_of_features = 585
 
+    self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
     if self.train:
         self.logger.info("Entering training mode.")
 
         if os.path.isfile(MODEL):
             self.logger.info("Train based on existing model.")
             with open(MODEL, "rb") as file:
-                self.model = pickle.load(file)
+                self.model = DeepQNet(585, 0).to(self.device)
+                self.model.load_state_dict(torch.load(file))
+
+            with open(MODEL_TARGET, "rb") as file:
+                self.model_target = DeepQNet(585, 0).to(self.device)
+                self.model_target.load_state_dict(torch.load(file))
+        else:
+
+            self.model = DeepQNet(self.number_of_features, 0).to(self.device)
+            self.model_target = DeepQNet(self.number_of_features, 0).to(self.device)
 
         set_epsilon(self)
-        set_weights(self)
+        # set_weights(self)
 
     else:
         self.logger.info("Loading model from saved state.")
-        with open(MODEL, "rb") as file:
-            self.model = pickle.load(file)
+        with open("../models/qnet_0", "rb") as file:
+            self.model = DeepQNet(585, 0)
+            self.model.load_state_dict(torch.load(file))
+            self.model.eval()
+
 
 
 def set_epsilon(self):
@@ -102,11 +118,15 @@ def act(self, game_state: dict) -> str:
     :param game_state: The dictionary that describes everything on the board.
     :return: The action to take as a string.
     """
+    features = state_to_features(game_state)
+    features_tensor = torch.from_numpy(features).float().to(self.device)
+    predicted_reward = self.model(features_tensor)
+    action = torch.argmax(predicted_reward)
+    self.logger.info(f'Selected action: {action}')
 
     # computation of Q-values
-    state_features = state_to_features(game_state)
-    weights = self.model
-    Q_sa = np.argmax(np.matmul(state_features, weights))
+
+    Q_sa = action
     argmax_Q = ACTIONS[Q_sa]
 
     if self.train:
@@ -272,6 +292,24 @@ def state_to_features(game_state: dict) -> np.array:
         features.append(np.min(coin_dists))
     else:
         features.append(max_dist + 1)  # set to max dist
+
+    # number of enemys hit by a bomb
+    hit_counter = 0
+    if game_state["self"][2]:
+        pos_array = np.array(pos)
+        for enemy in others:
+            pos_dif = pos_array - enemy[3]
+            if pos_dif[0] == 0 or pos_dif[1] == 0 and np.sum(pos_dif) <= 3:
+                hit_counter += 1
+    # features.append(hit_counter)
+    #
+    # crate_hit_counter = 0
+    # top_explosion = np.array(pos[0], pos[1] + 3)
+    # bottom_explosion = np.array(pos[0], pos[1] - 3)
+    # left_explosion = np.array(pos[0] - 3, pos[1])
+    # right_explosion = np.array(pos[0] + 3, pos[1])
+    #
+    # if()
 
     a = np.concatenate((state_as_features, np.array(features)))
     return a

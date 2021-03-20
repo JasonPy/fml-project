@@ -12,6 +12,8 @@ from sklearn.preprocessing import StandardScaler
 from scipy.spatial.distance import cityblock
 import events as e
 
+from agent_code.training_data.train_data_utils import read_h5f
+from tqdm import tqdm
 from .callbacks import state_to_features
 from .deep_q_net import DeepQNet
 
@@ -20,8 +22,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(device)
+from torch.utils.tensorboard import SummaryWriter
 
 
 # assign each action e scalar value
@@ -56,6 +57,8 @@ CLOSER_TO_COIN = "CLOSER_TO_COIN"
 FURTHER_FROM_OPPONENT = "FURTHER_FROM_OPPONENT"
 FURTHER_FROM_COIN = "FURTHER_FROM_COIN"
 
+PRE_TRAIN = False
+
 
 def setup_training(self):
     """
@@ -83,14 +86,16 @@ def setup_training(self):
     random.seed(1)
 
     # Q- Network
-    self.qnet_0 = DeepQNet(self.number_of_features, 0).to(device)
-    self.qnet_target = DeepQNet(self.number_of_features, 0).to(device)
 
-    self.optimizer = optim.Adam(self.qnet_0.parameters(), lr=LEARNING_RATE)
+    self.optimizer = optim.Adam(self.model.parameters(), lr=LEARNING_RATE)
 
     # Initialize time step (for updating every UPDATE_EVERY steps)
     self.update_step = 0
+    self.writer = SummaryWriter('../models/tb_3_hidden')
+    self.running_loss = 0
 
+    if PRE_TRAIN:
+        pre_train_agent(self, "../training_data/h5f_train_data.h5", 100000)
     # pre_train_agent(self, 100, stochastic_gradient_descent)
 
 
@@ -138,7 +143,7 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
 
         if len(self.transitions) > BATCH_SIZE:
             xp = sample_transitions(self)
-            learn(self, xp, GAMMA)
+            learn(self, xp)
 
 
 def end_of_round(self, last_game_state: dict, last_action: str, events: List[str]):
@@ -164,10 +169,9 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
     # Store the model
     save_model(self, "../models/qnet_0", "../models/qnet_target")
 
-
     # save rewards in csv
     # append_data_to_csv(self.csv_rewards, self.number_of_epoch, self.reward_per_epoch)
-    # self.number_of_epoch += 1
+    self.number_of_epoch += 1
 
     # reset custom events
     reset_events(self)
@@ -294,16 +298,16 @@ def learn(self, xp):
     states, next_states, actions, rewards = xp
 
     loss_criterion = torch.nn.MSELoss()
-    self.qnet_0.train()
-    self.qnet_target.eval()
+    self.model.train()
+    self.model_target.eval()
 
-    predicted_targets = self.qnet_0(states).gather(1, actions)
+    predicted_targets = self.model(states).gather(1, actions)
 
-    labels_next = self.qnet_target(next_states).max(1)[0].unsqueeze(1)
+    labels_next = self.model_target(next_states).max(1)[0].unsqueeze(1)
 
     labels = rewards + GAMMA * labels_next
 
-    loss = loss_criterion(predicted_targets, labels).to(device)
+    loss = loss_criterion(predicted_targets, labels).to(self.device)
     self.optimizer.zero_grad()
     loss.backward()
     self.optimizer.step()
@@ -311,10 +315,14 @@ def learn(self, xp):
     update_target_net(self)
 
 
+    self.writer.add_scalar('Test loss',
+                           loss.item(), self.number_of_epoch)
+
+
 def update_target_net(self):
     # TODO: alternating or stückweises updaten der target function
-    for target_param, local_param in zip(self.qnet_target.parameters(),
-                                         self.qnet_0.parameters()):
+    for target_param, local_param in zip(self.model_target.parameters(),
+                                         self.model.parameters()):
         target_param.data.copy_(TAU * local_param.data + (1 - TAU) * target_param.data)
 
 
@@ -359,10 +367,10 @@ def sample_transitions(self):
             next_states[t, :] = np.zeros(self.number_of_features)
         rewards[t] = samples[t].reward
 
-    actions = torch.from_numpy(actions).long().to(device)
-    states = torch.from_numpy(states).float().to(device)
-    next_states = torch.from_numpy(next_states).float().to(device)
-    rewards = torch.from_numpy(rewards).float().to(device)
+    actions = torch.from_numpy(actions).long().to(self.device)
+    states = torch.from_numpy(states).float().to(self.device)
+    next_states = torch.from_numpy(next_states).float().to(self.device)
+    rewards = torch.from_numpy(rewards).float().to(self.device)
 
     # TODO: standardize or normalize data?
     # states = standardize(states)
@@ -378,8 +386,8 @@ def append_data_to_csv(filename, epoch, data):
 
 
 def save_model(self, file_name, file_name_target):
-    torch.save(self.qnet_0.state_dict(), file_name)
-    torch.save(self.qnet_target.state_dict(), file_name_target)
+    torch.save(self.model.state_dict(), file_name)
+    torch.save(self.model_target.state_dict(), file_name_target)
 
 
 def standardize(features):
@@ -391,3 +399,27 @@ def sample(self, batch_size):
     get random sample of size batch_size from xp-buffer
     """
     return random.sample(self.transitions, batch_size)
+
+
+def pre_train_agent(self, file, iterations):
+    rewards, actions, old_state_features, new_state_features = read_h5f(file, "coin_collect_data")
+
+    num_elements = new_state_features.shape[0]
+    indices = np.arange(num_elements).tolist()
+
+    for i in tqdm(range(iterations)):
+        self.number_of_epoch +=1
+        indices = random.sample(indices, BATCH_SIZE)
+        batch_next_states = new_state_features[indices]
+        batch_states = old_state_features[indices]
+        batch_rewards = rewards[indices]
+        batch_actions = actions[indices]
+
+        tensor_actions = torch.from_numpy(batch_actions[:, np.newaxis]).long().to(self.device)
+        tensor_states = torch.from_numpy(batch_states).float().to(self.device)
+        tensor_next_states = torch.from_numpy(batch_next_states).float().to(self.device)
+        tensor_rewards = torch.from_numpy(batch_rewards[:, np.newaxis]).float().to(self.device)
+
+        learn(self, (tensor_states, tensor_next_states, tensor_actions, tensor_rewards))
+
+    save_model(self, file_name="../models/pretrained_qnet_2_hidden_layers", file_name_target="../models/pretrained_qnet_target_2_hidden_layers")
