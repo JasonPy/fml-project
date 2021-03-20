@@ -42,7 +42,7 @@ Transition = namedtuple('Transition',
 # Hyper parameters
 TRANSITION_HISTORY_SIZE = 4096  # keep last transitions
 GAMMA = 0.95  # discount value
-LEARNING_RATE = 0.001
+LEARNING_RATE = 0.003
 UPDATE_CYCLE = 5
 BATCH_SIZE = 64
 TAU = 1e-3
@@ -57,7 +57,7 @@ CLOSER_TO_COIN = "CLOSER_TO_COIN"
 FURTHER_FROM_OPPONENT = "FURTHER_FROM_OPPONENT"
 FURTHER_FROM_COIN = "FURTHER_FROM_COIN"
 
-PRE_TRAIN = False
+PRE_TRAIN = True
 
 
 def setup_training(self):
@@ -91,11 +91,12 @@ def setup_training(self):
 
     # Initialize time step (for updating every UPDATE_EVERY steps)
     self.update_step = 0
-    self.writer = SummaryWriter('../models/tb_3_hidden')
+    self.writer = SummaryWriter(
+        "C:/Users/Jason/OneDrive/Master/1. Semester/FML - Fundamentals of Machine Learning/Exercises/Final Project/fml-project/agent_code/summary")
     self.running_loss = 0
 
     if PRE_TRAIN:
-        pre_train_agent(self, "../training_data/h5f_train_data.h5", 100000)
+        pre_train_agent(self, "../training_data/h5f_train_data.h5", 300000)
     # pre_train_agent(self, 100, stochastic_gradient_descent)
 
 
@@ -172,6 +173,8 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
     # save rewards in csv
     # append_data_to_csv(self.csv_rewards, self.number_of_epoch, self.reward_per_epoch)
     self.number_of_epoch += 1
+
+    self.writer.add_scalar('Rewards', self.reward_per_epoch, self.number_of_epoch)
 
     # reset custom events
     reset_events(self)
@@ -314,9 +317,7 @@ def learn(self, xp):
 
     update_target_net(self)
 
-
-    self.writer.add_scalar('Test loss',
-                           loss.item(), self.number_of_epoch)
+    self.writer.add_scalar('Loss', loss.item(), self.number_of_epoch)
 
 
 def update_target_net(self):
@@ -408,7 +409,7 @@ def pre_train_agent(self, file, iterations):
     indices = np.arange(num_elements).tolist()
 
     for i in tqdm(range(iterations)):
-        self.number_of_epoch +=1
+        self.number_of_epoch += 1
         indices = random.sample(indices, BATCH_SIZE)
         batch_next_states = new_state_features[indices]
         batch_states = old_state_features[indices]
@@ -422,4 +423,5 @@ def pre_train_agent(self, file, iterations):
 
         learn(self, (tensor_states, tensor_next_states, tensor_actions, tensor_rewards))
 
-    save_model(self, file_name="../models/pretrained_qnet_2_hidden_layers", file_name_target="../models/pretrained_qnet_target_2_hidden_layers")
+    save_model(self, file_name="../models/pretrain_v1",
+               file_name_target="../models/pretrain_target_v1")

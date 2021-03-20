@@ -16,11 +16,12 @@ SOFTMAX = False  # define whether the argmax or the softmax is used during train
 TAU = 5  # for softmax policy
 
 MAX_GAME_STEPS = 401
-NUMBER_EPISODES = 100
+NUMBER_EPISODES = 1
 
 # external file locations
-MODEL = "../models/pretrained_qnet_2_hidden_layers"
-MODEL_TARGET = "../models/pretrained_qnet_target"
+MODEL = "../models/pretrain_v1"
+MODEL_TARGET = "../models/pretrain_target_v1"
+
 
 def setup(self):
     """
@@ -36,7 +37,7 @@ def setup(self):
 
     :param self: This object is passed to all callbacks and you can set arbitrary values.
     """
-    self.number_of_features = 585
+    self.number_of_features = 584
 
     self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -46,11 +47,11 @@ def setup(self):
         if os.path.isfile(MODEL):
             self.logger.info("Train based on existing model.")
             with open(MODEL, "rb") as file:
-                self.model = DeepQNet(585, 0).to(self.device)
+                self.model = DeepQNet(self.number_of_features, 0).to(self.device)
                 self.model.load_state_dict(torch.load(file))
 
             with open(MODEL_TARGET, "rb") as file:
-                self.model_target = DeepQNet(585, 0).to(self.device)
+                self.model_target = DeepQNet(self.number_of_features, 0).to(self.device)
                 self.model_target.load_state_dict(torch.load(file))
         else:
 
@@ -63,10 +64,9 @@ def setup(self):
     else:
         self.logger.info("Loading model from saved state.")
         with open("../models/qnet_0", "rb") as file:
-            self.model = DeepQNet(585, 0)
+            self.model = DeepQNet(self.number_of_features, 0)
             self.model.load_state_dict(torch.load(file))
             self.model.eval()
-
 
 
 def set_epsilon(self):
