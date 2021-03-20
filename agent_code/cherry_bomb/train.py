@@ -12,7 +12,7 @@ from sklearn.preprocessing import StandardScaler
 from scipy.spatial.distance import cityblock
 import events as e
 
-from .callbacks import state_to_features, get_transformer
+from .callbacks import state_to_features
 from .deep_q_net import DeepQNet
 
 import torch
@@ -289,7 +289,8 @@ def get_custom_events(self, old_game_state: dict, new_game_state: dict) -> List[
     return custom_events
 
 
-def learn(self, xp, GAMMA):
+def learn(self, xp):
+    # 64 entries of transition buffer
     states, next_states, actions, rewards = xp
 
     loss_criterion = torch.nn.MSELoss()
@@ -311,6 +312,7 @@ def learn(self, xp, GAMMA):
 
 
 def update_target_net(self):
+    # TODO: alternating or stückweises updaten der target function
     for target_param, local_param in zip(self.qnet_target.parameters(),
                                          self.qnet_0.parameters()):
         target_param.data.copy_(TAU * local_param.data + (1 - TAU) * target_param.data)

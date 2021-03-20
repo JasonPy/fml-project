@@ -16,8 +16,6 @@ class DeepQNet(nn.Module):
         self.fc2 = nn.Linear(HIDDEN_NODES, HIDDEN_NODES)
         self.fc3 = nn.Linear(HIDDEN_NODES, ACTIONS)
 
-        # TODO: self ? or seed
-
     def forward(self, x):
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))

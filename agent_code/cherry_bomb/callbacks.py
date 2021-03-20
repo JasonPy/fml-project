@@ -5,7 +5,6 @@ import numpy as np
 from scipy.spatial.distance import cityblock
 
 ACTIONS = ['UP', 'RIGHT', 'DOWN', 'LEFT', 'WAIT', 'BOMB']
-TRANSFORMER = None
 
 # hyperparameters / training config
 EPSILON_STRATEGY = "GREEDY_DECAY_EXPONENTIAL"  # GREEDY_DECAY_LINEAR / GREEDY
@@ -19,7 +18,6 @@ NUMBER_EPISODES = 100
 
 # external file locations
 MODEL = "../models/my-model.pt"
-TFORM = "../transformers/my-transformer.pt"
 
 
 def setup(self):
@@ -36,15 +34,7 @@ def setup(self):
 
     :param self: This object is passed to all callbacks and you can set arbitrary values.
     """
-    self.number_of_features = 1464
-    # load transformer if feature selection has already been done
-    if os.path.isfile(TFORM):
-        self.logger.info("Load and set transformer.")
-        with open(TFORM, "rb") as file:
-            global TRANSFORMER
-            TRANSFORMER = pickle.load(file)
-
-        self.number_of_features = TRANSFORMER.n_components_
+    self.number_of_features = 585
 
     if self.train:
         self.logger.info("Entering training mode.")
@@ -154,26 +144,29 @@ def state_to_features(game_state: dict) -> np.array:
     :return features: A np.array of features
     """
 
+    # TODO: "how many crates would a bomb placed here hit?", "how many agents would my bomb hit?"
+    # wall map?
+
     # This is the dict before the game begins and after it ends
     if game_state is None:
         return None
 
-    # field and data fileds are kept transposed
+    # field is not kept since we only need four positions to navigate
     field_channel = game_state['field'].flatten()
 
     # saving game filed indicating, if an opponent is present on a tile
-    opponent_channel = np.zeros(game_state['field'].shape)
-    for i in game_state['others']:
-        opponent_channel[i[3]] = 1 if i[2] else -1
-    opponent_channel = opponent_channel.flatten()
+    # opponent_channel = np.zeros(game_state['field'].shape)
+    # for i in game_state['others']:
+    #    opponent_channel[i[3]] = 1 if i[2] else -1
+    # opponent_channel = opponent_channel.flatten()
 
-    # map of bombs on field
-    bomb_channel = np.zeros(game_state['field'].shape)
-    for i in game_state['bombs']:
-        bomb_channel[i[0]] = i[1]
-    bomb_channel = bomb_channel.flatten()
+    # map of bombs on field, radius =
+    # bomb_channel = np.zeros(game_state['field'].shape)
+    # for i in game_state['bombs']:
+    #    bomb_channel[i[0]] = i[1]
+    # bomb_channel = bomb_channel.flatten()
 
-    explosion_map_channel = game_state['explosion_map'].flatten()
+    # explosion_map_channel = game_state['explosion_map'].flatten()
 
     # indicate where coins are on field
     coin_channel = np.zeros(game_state['field'].shape)
@@ -183,7 +176,7 @@ def state_to_features(game_state: dict) -> np.array:
 
     # stack all channels and flat them
     state_as_features = np.stack(
-        [field_channel, bomb_channel, explosion_map_channel, coin_channel, opponent_channel]).reshape(-1)
+        [field_channel, coin_channel]).reshape(-1)
 
     # custom feature vector (initially a list)
     features = []
@@ -215,7 +208,7 @@ def state_to_features(game_state: dict) -> np.array:
             dist = cityblock(np.asarray(others[i, 3]), pos)
             others_dists[i] = dist
         others_dists = np.sort(others_dists).tolist()
-    features += others_dists
+    # features += others_dists
 
     # distance to bombs
     bomb_dists = [max_dist + 1] * 4
@@ -224,7 +217,7 @@ def state_to_features(game_state: dict) -> np.array:
             dist = cityblock(np.asarray(bombs[i, 0]), pos)
             bomb_dists[i] = dist
         bomb_dists = np.sort(bomb_dists).tolist()
-    features += bomb_dists
+    # features += bomb_dists
 
     # danger zone to determine if agent would get hit by bombs
     danger_zone = []
@@ -258,7 +251,7 @@ def state_to_features(game_state: dict) -> np.array:
             danger_zone.append(0)
     d = [0, 0, 0, 0]
     d[:len(danger_zone)] = np.sort(danger_zone)
-    features += d
+    # features += d
 
     # distance to nearest crate
     crate_indices = np.argwhere(field == 1)
@@ -266,9 +259,9 @@ def state_to_features(game_state: dict) -> np.array:
     if crate_indices.shape[0] > 0:
         for i in range(crate_indices.shape[0]):
             crate_dists.append(cityblock(crate_indices[i], pos))
-        features.append(np.min(crate_dists))
-    else:
-        features.append(max_dist + 1)  # set to max dist
+        # features.append(np.min(crate_dists))
+    # else:
+    # features.append(max_dist + 1)  # set to max dist
 
     # distance to nearest coin
     coin_dists = []
@@ -280,13 +273,5 @@ def state_to_features(game_state: dict) -> np.array:
     else:
         features.append(max_dist + 1)  # set to max dist
 
-    # apply feature transform
-    # standardization applied via sklearn already
-    if TRANSFORMER:
-        return TRANSFORMER.transform(np.concatenate((state_as_features, np.array(features))).reshape(1, -1))
-    else:
-        return np.concatenate((state_as_features, np.array(features)))
-
-
-def get_transformer():
-    return TRANSFORMER
+    a = np.concatenate((state_as_features, np.array(features)))
+    return a
