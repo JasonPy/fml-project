@@ -206,7 +206,7 @@ def state_to_features(game_state: dict) -> np.array:
 
     # append score and if laying bomb is possible
     features.append(game_state['self'][1])
-    features.append(int(game_state['self'][2]))
+    # features.append(int(game_state['self'][2]))
 
     field = game_state['field']
     bombs = np.asarray(game_state['bombs'])
