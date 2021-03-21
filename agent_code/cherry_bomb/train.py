@@ -1,27 +1,22 @@
-import pickle
 import random
-
 import numpy as np
 from datetime import datetime
-import csv
+
 from collections import namedtuple, deque
 from typing import List
 from enum import Enum
 
 from sklearn.preprocessing import StandardScaler
 from scipy.spatial.distance import cityblock
-import events as e
+from tqdm import tqdm
 
 from agent_code.training_data.train_data_utils import read_h5f
-from tqdm import tqdm
 from .callbacks import state_to_features
-from .deep_q_net import DeepQNet
+import events as e
 
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import torch.nn.functional as F
-
 from torch.utils.tensorboard import SummaryWriter
 
 
@@ -35,29 +30,32 @@ class Action(Enum):
     BOMB = 5
 
 
-# This is only an example!
+# shape of transition buffer entries
 Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
 
-# Hyper parameters
-TRANSITION_HISTORY_SIZE = 4096  # keep last transitions
+# HYPERPARAMETERS
+TRANSITION_HISTORY_SIZE = 12000  # size of buffer
 GAMMA = 0.95  # discount value
-LEARNING_RATE = 0.0003
-UPDATE_CYCLE = 5
-BATCH_SIZE = 64
-TAU = 1e-3
+LEARNING_RATE = 1e-4  # learning rate for RL
+UPDATE_CYCLE = 5  # update every
+BATCH_SIZE = 64  # batch size of sample from buffer
+TAU = 1e-3  # how much net is updated
 
-# Custom events
+# CUSTOM EVENTS
 DOUBLE_KILL = "DOUBLE_KILL"
 DOUBLE_COIN = "DOUBLE_COIN"
 LAST_AGENT_ALIVE = "LAST_AGENT_ALIVE"
-# IN_SAFE_SPOT = "IN_SAFE_SPOT"
 CLOSER_TO_OPPONENT = "CLOSER_TO_OPPONENT"
 CLOSER_TO_COIN = "CLOSER_TO_COIN"
 FURTHER_FROM_OPPONENT = "FURTHER_FROM_OPPONENT"
 FURTHER_FROM_COIN = "FURTHER_FROM_COIN"
 
+# apply pre training
 PRE_TRAIN = False
+
+# output filenames (saved in models folder)
+MODEL = "testmodel"
 
 
 def setup_training(self):
@@ -74,29 +72,21 @@ def setup_training(self):
     self.reward_per_epoch = 0
     self.number_of_epoch = 0
     self.last_survivor = False
-
-    # prepare output files
-    self.datetime = datetime.now().strftime("%m-%d-%Y-%H-%M-%S")
-    self.csv_rewards = f"./logs/rewards_{self.datetime}.csv"
-    self.csv_actions = f"./logs/actions_{self.datetime}.csv"
-
-    # init NN
+    self.model_name = MODEL + "_" + datetime.now().strftime("%d-%m_%H-%M")
 
     # set random seed
     random.seed(1)
 
-    # Q- Network
-
+    # setup Q- Network
     self.optimizer = optim.Adam(self.model.parameters(), lr=LEARNING_RATE)
 
     # Initialize time step (for updating every UPDATE_EVERY steps)
     self.update_step = 0
-    self.writer = SummaryWriter('../models/tb_3_hidden')
     self.running_loss = 0
+    self.writer = SummaryWriter(f'C:/Users/jason/fml-project/agent_code/models/{self.model_name}')
 
     if PRE_TRAIN:
         pre_train_agent(self, "../training_data/h5f_train_data.h5", 100000)
-    # pre_train_agent(self, 100, stochastic_gradient_descent)
 
 
 def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_state: dict, events: List[str]):
@@ -167,10 +157,8 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
         last_game_state), last_action, None, reward))
 
     # Store the model
-    save_model(self, "../models/qnet_0", "../models/qnet_target")
+    save_model(self, f"../models/{self.model_name}/model", f"../models/{self.model_name}/target")
 
-    # save rewards in csv
-    # append_data_to_csv(self.csv_rewards, self.number_of_epoch, self.reward_per_epoch)
     self.writer.add_scalar("Rewards", self.reward_per_epoch, self.number_of_epoch)
 
     self.writer.add_scalars('Events', {
@@ -304,54 +292,58 @@ def get_custom_events(self, old_game_state: dict, new_game_state: dict) -> List[
 
 
 def learn(self, xp):
-    # 64 entries of transition buffer
+    # samples from transition buffer
     states, next_states, actions, rewards = xp
 
+    # define loss criteria
     loss_criterion = torch.nn.MSELoss()
+
+    # use training and evaluation flag
     self.model.train()
     self.model_target.eval()
 
+    # retrieve q value for each state
     predicted_targets = self.model(states).gather(1, actions)
 
+    # compute future reward (TD-Q-learning)
     labels_next = self.model_target(next_states).max(1)[0].unsqueeze(1)
-
     labels = rewards + GAMMA * labels_next
 
+    # compute loss
     loss = loss_criterion(predicted_targets, labels).to(self.device)
+
+    # more stable gradient updates by using gradient clipping
+    nn.utils.clip_grad_value_(self.model.parameters(), clip_value=1)
+
+    # clearing the previous data
     self.optimizer.zero_grad()
+
+    # apply backpropagation
     loss.backward()
     self.optimizer.step()
 
+    # update target net only
     update_target_net(self)
 
-    self.writer.add_scalar('Loss',
-                           loss.item(), self.number_of_epoch)
+    self.writer.add_scalar('Loss', loss.item(), self.number_of_epoch)
 
 
 def update_target_net(self):
-    # TODO: alternating or stückweises updaten der target function
+    """
+    alternating optimization every UPDATE_CYCLE steps
+    """
     for target_param, local_param in zip(self.model_target.parameters(),
                                          self.model.parameters()):
         target_param.data.copy_(TAU * local_param.data + (1 - TAU) * target_param.data)
 
 
 def reset_events(self):
+    """
+    reset rewards and events per epoch
+    """
     self.reward_per_epoch = 0
     self.last_survivor = False
-    # reset the event map
     self.event_map = dict.fromkeys(self.event_map, 0)
-
-
-def td_q_learning(self, next_state, reward, gamma=GAMMA):
-    return reward + gamma * np.max(np.matmul(next_state, self.model))
-
-
-def n_step_td_q_learning(self, next_state, t, n, gamma=GAMMA):
-    transitions = list(self.transitions)
-
-    for i in range(1, n + 1):
-        reward_sum = gamma ** (i - 1) * transitions[t + i]['reward']
-    return reward_sum + gamma ** n * np.max(np.matmul(transitions[t + n]['state'], self.model))
 
 
 def sample_transitions(self):
@@ -384,35 +376,22 @@ def sample_transitions(self):
     rewards = torch.from_numpy(rewards).float().to(self.device)
 
     # TODO: standardize or normalize data?
-    # states = standardize(states)
-    # next_states = standardize(next_states)
 
-    return (states, next_states, actions, rewards)
-
-
-def append_data_to_csv(filename, epoch, data):
-    with open(filename, 'a', newline='') as file:
-        csv_writer = csv.writer(file)
-        csv_writer.writerow([epoch, data])
+    return states, next_states, actions, rewards
 
 
 def save_model(self, file_name, file_name_target):
+    """
+    save target and actual model
+    """
     torch.save(self.model.state_dict(), file_name)
     torch.save(self.model_target.state_dict(), file_name_target)
 
 
-def standardize(features):
-    return StandardScaler().fit_transform(features)
-
-
-def sample(self, batch_size):
-    """
-    get random sample of size batch_size from xp-buffer
-    """
-    return random.sample(self.transitions, batch_size)
-
-
 def pre_train_agent(self, file, iterations):
+    """
+    pre train based on expert data to get good starting weights
+    """
     rewards, actions, old_state_features, new_state_features = read_h5f(file, "coin_collect_data")
 
     num_elements = new_state_features.shape[0]
