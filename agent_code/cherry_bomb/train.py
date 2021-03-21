@@ -70,7 +70,7 @@ def setup_training(self):
     """
 
     self.transitions = deque(maxlen=TRANSITION_HISTORY_SIZE)
-    self.event_map = dict.fromkeys([e.KILLED_OPPONENT, e.COIN_COLLECTED], 0)
+    self.event_map = dict.fromkeys([e.KILLED_OPPONENT, e.COIN_COLLECTED, e.INVALID_ACTION, e.BOMB_DROPPED], 0)
     self.reward_per_epoch = 0
     self.number_of_epoch = 0
     self.last_survivor = False
