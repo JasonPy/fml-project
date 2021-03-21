@@ -329,6 +329,8 @@ def update_target_net(self):
 def reset_events(self):
     self.reward_per_epoch = 0
     self.last_survivor = False
+    # reset the event map
+    self.event_map = dict.fromkeys(self.event_map, 0)
 
 
 def td_q_learning(self, next_state, reward, gamma=GAMMA):

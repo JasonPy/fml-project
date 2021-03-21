@@ -9,7 +9,7 @@ from scipy.spatial.distance import cityblock
 ACTIONS = ['UP', 'RIGHT', 'DOWN', 'LEFT', 'WAIT', 'BOMB']
 
 # hyperparameters / training config
-EPSILON_STRATEGY = "GREEDY_DECAY_EXPONENTIAL"  # GREEDY_DECAY_LINEAR / GREEDY
+EPSILON_STRATEGY = "GREEDY_DECAY_LINEAR"  # GREEDY_DECAY_LINEAR / GREEDY
 EPSILON_START_VALUE = 1.0
 EPSILON_END_VALUE = 0.01
 SOFTMAX = False  # define whether the argmax or the softmax is used during training
@@ -36,7 +36,7 @@ def setup(self):
 
     :param self: This object is passed to all callbacks and you can set arbitrary values.
     """
-    self.number_of_features = 585
+    self.number_of_features = 584
 
     self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -46,11 +46,11 @@ def setup(self):
         if os.path.isfile(MODEL):
             self.logger.info("Train based on existing model.")
             with open(MODEL, "rb") as file:
-                self.model = DeepQNet(585, 0).to(self.device)
+                self.model = DeepQNet(self.number_of_features, 0).to(self.device)
                 self.model.load_state_dict(torch.load(file))
 
             with open(MODEL_TARGET, "rb") as file:
-                self.model_target = DeepQNet(585, 0).to(self.device)
+                self.model_target = DeepQNet(self.number_of_features, 0).to(self.device)
                 self.model_target.load_state_dict(torch.load(file))
         else:
 
@@ -63,7 +63,7 @@ def setup(self):
     else:
         self.logger.info("Loading model from saved state.")
         with open("../models/qnet_0", "rb") as file:
-            self.model = DeepQNet(585, 0)
+            self.model = DeepQNet(self.number_of_features, 0)
             self.model.load_state_dict(torch.load(file))
             self.model.eval()
 
