@@ -42,7 +42,7 @@ Transition = namedtuple('Transition',
 # Hyper parameters
 TRANSITION_HISTORY_SIZE = 4096  # keep last transitions
 GAMMA = 0.95  # discount value
-LEARNING_RATE = 0.001
+LEARNING_RATE = 0.0003
 UPDATE_CYCLE = 5
 BATCH_SIZE = 64
 TAU = 1e-3
@@ -171,6 +171,16 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
 
     # save rewards in csv
     # append_data_to_csv(self.csv_rewards, self.number_of_epoch, self.reward_per_epoch)
+    self.writer.add_scalar("Rewards", self.reward_per_epoch, self.number_of_epoch)
+
+    self.writer.add_scalars('Events', {
+        'invalid_actions': self.event_map[e.INVALID_ACTION],
+        'coins_collected': self.event_map[e.COIN_COLLECTED],
+        'bombs dropped': self.event_map[e.BOMB_DROPPED],
+    }, self.number_of_epoch)
+
+    self.writer.add_scalar("Epsilon", self.epsilon(self.number_of_epoch), self.number_of_epoch)
+
     self.number_of_epoch += 1
 
     # reset custom events
@@ -314,8 +324,7 @@ def learn(self, xp):
 
     update_target_net(self)
 
-
-    self.writer.add_scalar('Test loss',
+    self.writer.add_scalar('Loss',
                            loss.item(), self.number_of_epoch)
 
 
@@ -410,7 +419,7 @@ def pre_train_agent(self, file, iterations):
     indices = np.arange(num_elements).tolist()
 
     for i in tqdm(range(iterations)):
-        self.number_of_epoch +=1
+        self.number_of_epoch += 1
         indices = random.sample(indices, BATCH_SIZE)
         batch_next_states = new_state_features[indices]
         batch_states = old_state_features[indices]
@@ -424,4 +433,4 @@ def pre_train_agent(self, file, iterations):
 
         learn(self, (tensor_states, tensor_next_states, tensor_actions, tensor_rewards))
 
-    save_model(self, file_name="../models/pretrained_qnet_2_hidden_layers", file_name_target="../models/pretrained_qnet_target_2_hidden_layers")
+    save_model(self, file_name="../models/pretrain_v2", file_name_target="../models/pretrain_target_v2")
