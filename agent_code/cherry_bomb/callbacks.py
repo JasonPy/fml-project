@@ -36,7 +36,7 @@ def setup(self):
 
     :param self: This object is passed to all callbacks and you can set arbitrary values.
     """
-    self.number_of_features = 3
+    self.number_of_features = 11
     self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     if self.train:
@@ -258,13 +258,40 @@ def state_to_features(game_state: dict) -> np.array:
 
     # distance to nearest coin
     coin_dists = []
+    nearest_coin = None
     if coins.size > 0:
         for i in range(len(coins)):
             dist = cityblock(np.asarray(coins[i]), pos)
             coin_dists.append(relative(max_dist, dist))
-        features.append(np.min(coin_dists))
+        features.append(np.max(coin_dists))
+        nearest_coin = coins[np.argmax(coin_dists)]
     else:
         features.append(max_dist)  # set to max dist
+
+    coin_diff = pos - nearest_coin
+    xx = np.zeros(4)
+    if coin_diff[0] > 0:
+        xx[0] = coin_diff[0]
+    else:
+        xx[1] = np.abs(coin_diff[0])
+
+    if coin_diff[1] > 0:
+        xx[2] = coin_diff[1]
+    else:
+        xx[3] = np.abs(coin_diff[1])
+    features += (xx / np.sum(xx)).tolist()
+
+    # tile to the left
+    features.append(np.abs(field[pos[0] - 1, pos[1]]))
+
+    # tile to the right
+    features.append(np.abs(field[pos[0] + 1, pos[1]]))
+
+    # tile below
+    features.append(np.abs(field[pos[0], pos[1] + 1]))
+
+    # tile above
+    features.append(np.abs(field[pos[0], pos[1] - 1]))
 
     # number of opponents hit by a bomb
     hit_counter = 0
@@ -273,8 +300,24 @@ def state_to_features(game_state: dict) -> np.array:
         for enemy in others:
             pos_dif = pos_array - enemy[3]
             if pos_dif[0] == 0 or pos_dif[1] == 0 and np.sum(pos_dif) <= 3:
-                hit_counter += 1
-    # features.append(hit_counter)
+                # check if there is a stone wall somewhere in between the bomb and an opponent
+                if pos_dif[0] == 0:
+                    y_pos = pos_dif[1]
+                    if y_pos > 0:
+                        if np.sum(np.where(field[pos[0], enemy[3][0]:pos[1]] == -1)) == 0:
+                            hit_counter += 1
+                    else:
+                        if np.sum(np.where(field[pos[0], pos[1]:enemy[3][0]] == -1)) == 0:
+                            hit_counter += 1
+                elif pos_dif[1] == 0:
+                    x_pos = pos_dif[0]
+                    if x_pos > 0:
+                        if np.sum(np.where(field[enemy[3][0]:pos[0], pos[1]] == -1)) == 0:
+                            hit_counter += 1
+                    else:
+                        if np.sum(np.where(field[pos[0]:enemy[3][0], pos[1]] == -1)) == 0:
+                            hit_counter += 1
+    # features.append(relative(len(others),hit_counter))
 
     return np.array(features)
 
@@ -283,6 +326,7 @@ def relative(max_dist, dist):
     return (max_dist - dist) / max_dist
 
 # TODO: FEATURES
+# how many opponents / crates do we hit  -> 4 - num_hit / 4 -> relative
 # scared ghost
 # 4 - num of free fields around / 4 -> fluchtweg
 # case 1: in danger zone, case 2: not in danger zone
