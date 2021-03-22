@@ -268,18 +268,24 @@ def state_to_features(game_state: dict) -> np.array:
     else:
         features.append(max_dist)  # set to max dist
 
-    coin_diff = pos - nearest_coin
     xx = np.zeros(4)
-    if coin_diff[0] > 0:
-        xx[0] = coin_diff[0]
-    else:
-        xx[1] = np.abs(coin_diff[0])
+    if nearest_coin is not None:
+        coin_diff = pos - nearest_coin
+        if coin_diff[0] > 0:
+            xx[0] = coin_diff[0]
+        else:
+            xx[1] = np.abs(coin_diff[0])
 
-    if coin_diff[1] > 0:
-        xx[2] = coin_diff[1]
+        if coin_diff[1] > 0:
+            xx[2] = coin_diff[1]
+        else:
+            xx[3] = np.abs(coin_diff[1])
+        if np.sum(xx) == 0:
+            features += xx.tolist()
+        else:
+            features += (xx / np.sum(xx)).tolist()
     else:
-        xx[3] = np.abs(coin_diff[1])
-    features += (xx / np.sum(xx)).tolist()
+        features += xx.tolist()
 
     # tile to the left
     features.append(np.abs(field[pos[0] - 1, pos[1]]))
