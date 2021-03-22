@@ -1,8 +1,7 @@
 import os
-import pickle
 import numpy as np
-
 import torch
+
 from .deep_q_net import DeepQNet
 from scipy.spatial.distance import cityblock
 
@@ -37,7 +36,7 @@ def setup(self):
 
     :param self: This object is passed to all callbacks and you can set arbitrary values.
     """
-    self.number_of_features = 873
+    self.number_of_features = 3
     self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     if self.train:
@@ -192,7 +191,7 @@ def state_to_features(game_state: dict) -> np.array:
     features.append(relative(max_score, game_state['self'][1]))
 
     # can bomb
-    features.append(int(game_state['self'][2]))
+    # features.append(int(game_state['self'][2]))
 
     # distance to others
     others_dists = np.zeros(3)

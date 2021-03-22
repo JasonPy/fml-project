@@ -1,3 +1,4 @@
+import os
 import random
 import numpy as np
 from datetime import datetime
@@ -6,7 +7,6 @@ from collections import namedtuple, deque
 from typing import List
 from enum import Enum
 
-from sklearn.preprocessing import StandardScaler
 from scipy.spatial.distance import cityblock
 from tqdm import tqdm
 
@@ -72,7 +72,8 @@ def setup_training(self):
     self.reward_per_epoch = 0
     self.number_of_epoch = 0
     self.last_survivor = False
-    self.model_name = f"{MODEL}_{datetime.now().strftime('%d-%m_%H-%M')}"
+    self.model_name = MODEL + "_" + datetime.now().strftime('%d-%m_%H-%M')
+    os.mkdir('../models/' + self.model_name)
 
     # set random seed
     random.seed(1)
@@ -84,7 +85,8 @@ def setup_training(self):
     self.update_step = 0
     self.running_loss = 0
 
-    self.writer = SummaryWriter(f'C:/Users/jason/fml-project/agent_code/models/{self.model_name}')
+    self.writer = SummaryWriter(
+        f'C:/Users/Jason/OneDrive/Master/1. Semester/FML - Fundamentals of Machine Learning/Exercises/Final Project/fml-project/agent_code/models/{self.model_name}/tensorboard')
 
     if PRE_TRAIN:
         pre_train_agent(self, "../training_data/h5f_train_data.h5", 100000)
