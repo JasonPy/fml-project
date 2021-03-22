@@ -40,7 +40,7 @@ GAMMA = 0.95  # discount value
 LEARNING_RATE = 2e-4  # learning rate for RL
 UPDATE_CYCLE = 5  # update every
 BATCH_SIZE = 64  # batch size of sample from buffer
-TAU = 1e-3  # how much net is updated
+UPDATE_CYCLE_TARGET = 1000  # how much net is updated
 
 # CUSTOM EVENTS
 DOUBLE_KILL = "DOUBLE_KILL"
@@ -83,6 +83,7 @@ def setup_training(self):
 
     # Initialize time step (for updating every UPDATE_EVERY steps)
     self.update_step = 0
+    self.update_step_target = 0
     self.running_loss = 0
 
     self.writer = SummaryWriter(
@@ -131,6 +132,7 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
     self.reward_per_epoch += rewards
 
     self.update_step += 1
+    self.update_step_target += 1
     if self.update_step % UPDATE_CYCLE == 0:
         self.update_step = 0
 
@@ -325,18 +327,18 @@ def learn(self, xp):
     self.optimizer.step()
 
     # update target net only
-    update_target_net(self)
+    if self.update_step % UPDATE_CYCLE_TARGET == 0:
+        self.update_step_target = 0
+        update_target_net(self)
 
     self.writer.add_scalar('Loss', loss.item(), self.number_of_epoch)
 
 
 def update_target_net(self):
     """
-    alternating optimization every UPDATE_CYCLE steps
-    """
-    for target_param, local_param in zip(self.model_target.parameters(),
-                                         self.model.parameters()):
-        target_param.data.copy_(TAU * local_param.data + (1 - TAU) * target_param.data)
+    alternating optimization every UPDATE_CYCLE steps    """
+
+    self.model_target.parameters().data.copy_(self.model.parameters().data)
 
 
 def reset_events(self):
