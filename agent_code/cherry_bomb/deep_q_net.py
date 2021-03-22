@@ -2,8 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-# amount of hidden nodes and actions
-HIDDEN_NODES = 64
+# actions
 ACTIONS = 6
 
 
@@ -12,11 +11,9 @@ class DeepQNet(nn.Module):
     def __init__(self, num_states, seed):
         super(DeepQNet, self).__init__()
         self.seed = torch.manual_seed(seed)
-        self.fc1 = nn.Linear(num_states, HIDDEN_NODES)
-        self.fc2 = nn.Linear(HIDDEN_NODES, HIDDEN_NODES)
-        self.fc3 = nn.Linear(HIDDEN_NODES, ACTIONS)
+        self.input_layer = nn.Linear(num_states, 64)
+        self.output_layer = nn.Linear(64, ACTIONS)
 
     def forward(self, x):
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        return self.fc3(x)
+        x = F.relu(self.input_layer(x))
+        return self.output_layer(x)

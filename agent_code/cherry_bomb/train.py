@@ -37,7 +37,7 @@ Transition = namedtuple('Transition',
 # HYPERPARAMETERS
 TRANSITION_HISTORY_SIZE = 12000  # size of buffer
 GAMMA = 0.95  # discount value
-LEARNING_RATE = 1e-4  # learning rate for RL
+LEARNING_RATE = 2e-4  # learning rate for RL
 UPDATE_CYCLE = 5  # update every
 BATCH_SIZE = 64  # batch size of sample from buffer
 TAU = 1e-3  # how much net is updated
@@ -72,7 +72,7 @@ def setup_training(self):
     self.reward_per_epoch = 0
     self.number_of_epoch = 0
     self.last_survivor = False
-    self.model_name = MODEL + "_" + datetime.now().strftime("%d-%m_%H-%M")
+    self.model_name = f"{MODEL}_{datetime.now().strftime('%d-%m_%H-%M')}"
 
     # set random seed
     random.seed(1)
@@ -83,6 +83,7 @@ def setup_training(self):
     # Initialize time step (for updating every UPDATE_EVERY steps)
     self.update_step = 0
     self.running_loss = 0
+
     self.writer = SummaryWriter(f'C:/Users/jason/fml-project/agent_code/models/{self.model_name}')
 
     if PRE_TRAIN:
@@ -206,7 +207,6 @@ def reward_from_events(self, events: List[str]) -> int:
         DOUBLE_COIN: 40,
         DOUBLE_KILL: 40,
         LAST_AGENT_ALIVE: 175,
-        # TODO: IN_SAFE_SPOT: 40,
         CLOSER_TO_OPPONENT: 0.2,
         CLOSER_TO_COIN: 0.2,
         FURTHER_FROM_OPPONENT: -0.2,
@@ -222,7 +222,6 @@ def reward_from_events(self, events: List[str]) -> int:
 
 
 def get_custom_events(self, old_game_state: dict, new_game_state: dict) -> List[str]:
-    # TODO: more generic by using state to get amount of players
     custom_events = []
 
     if self.event_map[e.KILLED_OPPONENT] == 2:
@@ -320,6 +319,7 @@ def learn(self, xp):
 
     # apply backpropagation
     loss.backward()
+
     self.optimizer.step()
 
     # update target net only
@@ -412,4 +412,4 @@ def pre_train_agent(self, file, iterations):
 
         learn(self, (tensor_states, tensor_next_states, tensor_actions, tensor_rewards))
 
-    save_model(self, file_name="../models/pretrain_v2", file_name_target="../models/pretrain_target_v2")
+    save_model(self, file_name="../models/pretrain_v3", file_name_target="../models/pretrain_target_v3")
