@@ -35,12 +35,12 @@ Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
 
 # HYPERPARAMETERS
-TRANSITION_HISTORY_SIZE = 12000  # size of buffer
+TRANSITION_HISTORY_SIZE = 32000  # size of buffer
 GAMMA = 0.95  # discount value
-LEARNING_RATE = 2e-4  # learning rate for RL
-UPDATE_CYCLE = 5  # update every
-BATCH_SIZE = 64  # batch size of sample from buffer
-UPDATE_CYCLE_TARGET = 1000  # how much net is updated
+LEARNING_RATE = 1e-4  # learning rate for RL
+UPDATE_CYCLE = 3  # update every
+BATCH_SIZE = 128  # batch size of sample from buffer
+UPDATE_CYCLE_TARGET = 10000  # how much net is updated
 
 # CUSTOM EVENTS
 DOUBLE_KILL = "DOUBLE_KILL"
@@ -90,7 +90,7 @@ def setup_training(self):
         f'C:/Users/Jason/OneDrive/Master/1. Semester/FML - Fundamentals of Machine Learning/Exercises/Final Project/fml-project/agent_code/models/{self.model_name}/tensorboard')
 
     if PRE_TRAIN:
-        pre_train_agent(self, "../training_data/h5f_train_data.h5", 100000)
+        pre_train_agent(self, "../training_data/h5f_crate_train_data.h5", 1000000)
 
 
 def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_state: dict, events: List[str]):
@@ -133,12 +133,18 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
 
     self.update_step += 1
     self.update_step_target += 1
+
     if self.update_step % UPDATE_CYCLE == 0:
         self.update_step = 0
 
         if len(self.transitions) > BATCH_SIZE:
             xp = sample_transitions(self)
             learn(self, xp)
+
+    # update target net only
+    if self.update_step_target % UPDATE_CYCLE_TARGET == 0:
+        self.update_step_target = 0
+        update_target_net(self)
 
 
 def end_of_round(self, last_game_state: dict, last_action: str, events: List[str]):
@@ -326,19 +332,16 @@ def learn(self, xp):
 
     self.optimizer.step()
 
-    # update target net only
-    if self.update_step % UPDATE_CYCLE_TARGET == 0:
-        self.update_step_target = 0
-        update_target_net(self)
-
     self.writer.add_scalar('Loss', loss.item(), self.number_of_epoch)
 
 
 def update_target_net(self):
     """
-    alternating optimization every UPDATE_CYCLE steps    """
-
-    self.model_target.parameters().data.copy_(self.model.parameters().data)
+    alternating optimization every UPDATE_CYCLE steps
+    """
+    for target_param, local_param in zip(self.model_target.parameters(),
+                                         self.model.parameters()):
+        target_param.data.copy_(local_param.data)
 
 
 def reset_events(self):
@@ -414,6 +417,16 @@ def pre_train_agent(self, file, iterations):
         tensor_next_states = torch.from_numpy(batch_next_states).float().to(self.device)
         tensor_rewards = torch.from_numpy(batch_rewards[:, np.newaxis]).float().to(self.device)
 
-        learn(self, (tensor_states, tensor_next_states, tensor_actions, tensor_rewards))
+        if self.update_step % UPDATE_CYCLE == 0:
+            self.update_step = 0
+            learn(self, (tensor_states, tensor_next_states, tensor_actions, tensor_rewards))
 
-    save_model(self, file_name="../models/pretrain_v3", file_name_target="../models/pretrain_target_v3")
+        #if self.update_step_target % UPDATE_CYCLE_TARGET == 0:
+        #    self.update_step_target = 0
+        #    update_target_net(self)
+
+        self.update_step += 1
+        # self.update_step_target += 1
+
+    update_target_net(self)
+    save_model(self, file_name="../models/pretrain_crate_no_update", file_name_target="../models/pretrain_crate_no_update_target")

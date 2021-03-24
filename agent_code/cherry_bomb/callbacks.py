@@ -18,8 +18,8 @@ MAX_GAME_STEPS = 401
 NUMBER_EPISODES = 10000
 
 # external file locations
-MODEL = "../models/pretrained_qnet_2_hidden_layers"
-MODEL_TARGET = "../models/pretrained_qnet_target"
+MODEL = "../models/pretrain_v"
+MODEL_TARGET = "../models/pretrain_target_v"
 
 
 def setup(self):
@@ -36,7 +36,7 @@ def setup(self):
 
     :param self: This object is passed to all callbacks and you can set arbitrary values.
     """
-    self.number_of_features = 11
+    self.number_of_features = 26
     self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     if self.train:
@@ -52,12 +52,11 @@ def setup(self):
                 self.model_target = DeepQNet(self.number_of_features, 0).to(self.device)
                 self.model_target.load_state_dict(torch.load(file))
         else:
-
+            print("New Model initialized")
             self.model = DeepQNet(self.number_of_features, 0).to(self.device)
             self.model_target = DeepQNet(self.number_of_features, 0).to(self.device)
 
         set_epsilon(self)
-        # set_weights(self)
 
     else:
         self.logger.info("Loading model from saved state.")
@@ -162,8 +161,6 @@ def state_to_features(game_state: dict) -> np.array:
     :return features: A np.array of features
     """
 
-    # TODO: "how many crates would a bomb placed here hit?", "how many agents would my bomb hit?"
-
     # This is the dict before the game begins and after it ends
     if game_state is None:
         return None
@@ -191,7 +188,7 @@ def state_to_features(game_state: dict) -> np.array:
     features.append(relative(max_score, game_state['self'][1]))
 
     # can bomb
-    # features.append(int(game_state['self'][2]))
+    features.append(int(game_state['self'][2]))
 
     # distance to others
     others_dists = np.zeros(3)
@@ -201,6 +198,7 @@ def state_to_features(game_state: dict) -> np.array:
             others_dists[i] = relative(max_dist, dist)
         others_dists = np.sort(others_dists).tolist()
     # features += others_dists
+    # TODO: direction to nearest opponent
 
     # distance to bombs
     bomb_dists = np.zeros(4)
@@ -208,8 +206,8 @@ def state_to_features(game_state: dict) -> np.array:
         for i in range(len(bombs)):
             dist = cityblock(np.asarray(bombs[i, 0]), pos)
             bomb_dists[i] = relative(max_dist, dist)
-        bomb_dists = np.sort(bomb_dists).tolist()
-    # features += bomb_dists
+        bomb_dists = np.sort(bomb_dists)
+    features += bomb_dists.tolist()
 
     # danger zone to determine if agent would get hit by bombs
     danger_zone = []
@@ -243,18 +241,41 @@ def state_to_features(game_state: dict) -> np.array:
             danger_zone.append(0)
     d = [0, 0, 0, 0]
     d[:len(danger_zone)] = np.sort(danger_zone)
-    # features += d
+    features += d
 
     # distance to nearest crate
     crate_indices = np.argwhere(field == 1)
     crate_dists = []
+    nearest_crate = None
     if crate_indices.shape[0] > 0:
         for i in range(crate_indices.shape[0]):
             dist = cityblock(crate_indices[i], pos)
             crate_dists.append(relative(max_dist, dist))
-        # features.append(np.min(crate_dists))
-    # else:
-    # features.append(max_dist)  # set to max dist
+        features.append(np.max(crate_dists))
+        nearest_crate = crate_indices[np.argmax(crate_dists)]
+    else:
+        features.append(0)  # set to max dist
+
+    # get indicator on which direction to go for finding a crate
+    # indicated for left, right, top, bottom
+    crate_dir = np.zeros(4)
+    if nearest_crate is not None:
+        crate_diff = pos - nearest_crate
+        if crate_diff[0] > 0:
+            crate_dir[0] = crate_diff[0]
+        else:
+            crate_dir[1] = np.abs(crate_diff[0])
+
+        if crate_diff[1] > 0:
+            crate_dir[2] = crate_diff[1]
+        else:
+            crate_dir[3] = np.abs(crate_diff[1])
+        if np.sum(crate_dir) == 0:
+            features += crate_dir.tolist()
+        else:
+            features += (crate_dir/np.sum(crate_dir)).tolist()
+    else:
+        features += crate_dir.tolist()
 
     # distance to nearest coin
     coin_dists = []
@@ -266,36 +287,34 @@ def state_to_features(game_state: dict) -> np.array:
         features.append(np.max(coin_dists))
         nearest_coin = coins[np.argmax(coin_dists)]
     else:
-        features.append(max_dist)  # set to max dist
+        features.append(0)  # set to max dist
 
     xx = np.zeros(4)
     if nearest_coin is not None:
         coin_diff = pos - nearest_coin
         if coin_diff[0] > 0:
-            xx[0] = coin_diff[0]
+            coin_dir[0] = coin_diff[0]
         else:
-            xx[1] = np.abs(coin_diff[0])
+            coin_dir[1] = np.abs(coin_diff[0])
 
         if coin_diff[1] > 0:
-            xx[2] = coin_diff[1]
+            coin_dir[2] = coin_diff[1]
         else:
-            xx[3] = np.abs(coin_diff[1])
-        if np.sum(xx) == 0:
-            features += xx.tolist()
+            coin_dir[3] = np.abs(coin_diff[1])
+        if np.sum(coin_dir) == 0:
+            features += coin_dir.tolist()
         else:
-            features += (xx / np.sum(xx)).tolist()
+            features += (coin_dir / np.sum(coin_dir)).tolist()
     else:
-        features += xx.tolist()
+        features += coin_dir.tolist()
 
+    # look around and check for free tiles
     # tile to the left
     features.append(np.abs(field[pos[0] - 1, pos[1]]))
-
     # tile to the right
     features.append(np.abs(field[pos[0] + 1, pos[1]]))
-
     # tile below
     features.append(np.abs(field[pos[0], pos[1] + 1]))
-
     # tile above
     features.append(np.abs(field[pos[0], pos[1] - 1]))
 
@@ -324,6 +343,35 @@ def state_to_features(game_state: dict) -> np.array:
                         if np.sum(np.where(field[pos[0]:enemy[3][0], pos[1]] == -1)) == 0:
                             hit_counter += 1
     # features.append(relative(len(others),hit_counter))
+
+    # number of crates hit by bomb
+    max_crate_hit = 10
+    # x-direction
+    crates_hit = 0
+    for element in field[pos[0]:pos[0] + 4, pos[1]]:
+        if element == -1:
+            break
+        if element == 1:
+            crates_hit += 1
+
+    for element in np.flip(field[pos[0] - 3:pos[0], pos[1]]):
+        if element == -1:
+            break
+        if element == 1:
+            crates_hit += 1
+
+    for element in field[pos[0], pos[1]:pos[1] + 4]:
+        if element == -1:
+            break
+        if element == 1:
+            crates_hit += 1
+
+    for element in np.flip(field[pos[0], pos[1] - 3:pos[1]]):
+        if element == -1:
+            break
+        if element == 1:
+            crates_hit += 1
+    features.append(relative(max_crate_hit, crates_hit))
 
     return np.array(features)
 
