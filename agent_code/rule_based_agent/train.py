@@ -87,7 +87,8 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
     old_state_features = state_to_features(old_game_state)
     new_state_features = state_to_features(new_game_state)
 
-    if old_state_features is not None and new_state_features is not None:
+    if old_state_features is not None and new_state_features is not None and self_action is not None:
+        # TODO: Report bug
         reward_action_array = np.append(reward_from_events(self, events), Action[self_action].value)
         features = np.append(old_state_features, new_state_features)
         features = np.append(reward_action_array, features)
@@ -114,12 +115,11 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
     self.train_list.append(features)
 
     self.number_of_epoch += 1
-    print(self.number_of_epoch)
-    if (self.number_of_epoch % 10 == 0):
+    if (self.number_of_epoch % 500 == 0):
         data = np.array(self.train_list)
         size = data.shape[1]
         # save_train_data(self.train_list, self.train_data_path)
-        save_to_h5_file('../training_data/h5f_train_data.h5', "coin_collect_data", data, size)
+        save_to_h5_file('../training_data/h5f_crate_train_data.h5', "coin_collect_data", data, size)
         self.train_list = []
 
     reset_events(self)

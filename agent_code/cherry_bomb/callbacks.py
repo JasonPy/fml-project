@@ -289,7 +289,9 @@ def state_to_features(game_state: dict) -> np.array:
     else:
         features.append(0)  # set to max dist
 
-    xx = np.zeros(4)
+    # get indicator on which direction to go for finding a coin
+    # indicated for left, right, top, bottom
+    coin_dir = np.zeros(4)
     if nearest_coin is not None:
         coin_diff = pos - nearest_coin
         if coin_diff[0] > 0:
