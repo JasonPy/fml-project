@@ -36,7 +36,7 @@ def setup(self):
 
     :param self: This object is passed to all callbacks and you can set arbitrary values.
     """
-    self.number_of_features = 26
+    self.number_of_features = 39
     self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     if self.train:
@@ -175,6 +175,7 @@ def state_to_features(game_state: dict) -> np.array:
     coins = np.asarray(game_state['coins'])
     others = np.asarray(game_state['others'])
     explosion_map = np.asarray(game_state['explosion_map'])
+
     # max distance -> longest distance with shortest path -> diagonal
     max_dist = cityblock((1, 1), game_state['field'].shape)
 
@@ -184,7 +185,7 @@ def state_to_features(game_state: dict) -> np.array:
     features.append(relative(MAX_GAME_STEPS, game_state['step']))
 
     # rel. score
-    max_score = 9  # 9 coins + 15 opponents
+    max_score = 24  # 9 coins + 15 opponents
     features.append(relative(max_score, game_state['self'][1]))
 
     # can bomb
@@ -197,9 +198,9 @@ def state_to_features(game_state: dict) -> np.array:
         for i in range(len(others)):
             dist = cityblock(np.asarray(others[i, 3]), pos)
             others_dists[i] = relative(max_dist, dist)
-        others_dists = np.sort(others_dists).tolist()
-        nearest_opponent = others[np.argmax(others_dists)]
-    features += others_dists
+        nearest_opponent = others[np.argmax(others_dists)][3]
+        others_dists = np.sort(others_dists)
+    features += others_dists.tolist()
 
     opponent_dir = np.zeros(4)
     if nearest_opponent is not None:
@@ -220,6 +221,7 @@ def state_to_features(game_state: dict) -> np.array:
     else:
         features += opponent_dir.tolist()
 
+
     # distance to bombs
     bomb_dists = np.zeros(4)
     if bombs.size > 0:
@@ -230,38 +232,16 @@ def state_to_features(game_state: dict) -> np.array:
     features += bomb_dists.tolist()
 
     # danger zone to determine if agent would get hit by bombs
-    danger_zone = []
-    for b in bombs:
-        if np.abs(pos[0] - b[0][0]) <= 3 or np.abs(pos[1] - b[0][1]) <= 3:
-            if pos[0] == b[0][0]:
-                y_pos = pos[1] - b[0][1]
-                if y_pos > 0:
-                    if np.sum(np.where(field[pos[0], b[0][1]:pos[1]] == -1)) == 0:
-                        danger_zone.append(relative(4, b[1]))
-                    else:
-                        danger_zone.append(0)
-                else:
-                    if np.sum(np.where(field[pos[0], pos[1]:b[0][1]] == -1)) == 0:
-                        danger_zone.append(relative(4, b[1]))
-                    else:
-                        danger_zone.append(0)
-            elif pos[1] == b[0][1]:
-                x_pos = pos[0] - b[0][0]
-                if x_pos > 0:
-                    if np.sum(np.where(field[b[0][0]:pos[0], pos[1]] == -1)) == 0:
-                        danger_zone.append(relative(4, b[1]))
-                    else:
-                        danger_zone.append(0)
-                else:
-                    if np.sum(np.where(field[pos[0]:b[0][0], pos[1]] == -1)) == 0:
-                        danger_zone.append(relative(4, b[1]))
-                    else:
-                        danger_zone.append(0)
-        else:
-            danger_zone.append(0)
-    d = [0, 0, 0, 0]
-    d[:len(danger_zone)] = np.sort(danger_zone)
-    features += d
+    # current position
+    features.append(in_danger(pos, bombs, field))
+    # left
+    features.append(in_danger(np.array([pos[0] - 1, pos[1]]), bombs, field))
+    # right
+    features.append(in_danger(np.array([pos[0] + 1, pos[1]]), bombs, field))
+    # below
+    features.append(in_danger(np.array([pos[0], pos[1] + 1]), bombs, field))
+    # above
+    features.append(in_danger(np.array([pos[0], pos[1] - 1]), bombs, field))
 
     # Check for explosions
     # tile to the left
@@ -303,7 +283,7 @@ def state_to_features(game_state: dict) -> np.array:
         if np.sum(crate_dir) == 0:
             features += crate_dir.tolist()
         else:
-            features += (crate_dir/np.sum(crate_dir)).tolist()
+            features += (crate_dir / np.sum(crate_dir)).tolist()
     else:
         features += crate_dir.tolist()
 
@@ -350,11 +330,11 @@ def state_to_features(game_state: dict) -> np.array:
 
     # number of opponents hit by a bomb
     hit_counter = 0
-    if game_state["self"][2]:
+    if game_state["self"][2] and len(others) > 0:
         pos_array = np.array(pos)
         for enemy in others:
             pos_dif = pos_array - enemy[3]
-            if pos_dif[0] == 0 or pos_dif[1] == 0 and np.sum(pos_dif) <= 3:
+            if (pos_dif[0] == 0 or pos_dif[1] == 0) and np.sum(np.abs(pos_dif)) <= 3:
                 # check if there is a stone wall somewhere in between the bomb and an opponent
                 if pos_dif[0] == 0:
                     y_pos = pos_dif[1]
@@ -372,35 +352,38 @@ def state_to_features(game_state: dict) -> np.array:
                     else:
                         if np.sum(np.where(field[pos[0]:enemy[3][0], pos[1]] == -1)) == 0:
                             hit_counter += 1
-    # features.append(relative(len(others),hit_counter))
+        features.append(relative(len(others), hit_counter))
+    else:
+        features.append(1)
 
     # number of crates hit by bomb
     max_crate_hit = 10
-    # x-direction
     crates_hit = 0
-    for element in field[pos[0]:pos[0] + 4, pos[1]]:
-        if element == -1:
-            break
-        if element == 1:
-            crates_hit += 1
+    if game_state["self"][2]:
+        # x-direction
+        for element in field[pos[0]:pos[0] + 4, pos[1]]:
+            if element == -1:
+                break
+            if element == 1:
+                crates_hit += 1
 
-    for element in np.flip(field[pos[0] - 3:pos[0], pos[1]]):
-        if element == -1:
-            break
-        if element == 1:
-            crates_hit += 1
+        for element in np.flip(field[pos[0] - 3:pos[0], pos[1]]):
+            if element == -1:
+                break
+            if element == 1:
+                crates_hit += 1
 
-    for element in field[pos[0], pos[1]:pos[1] + 4]:
-        if element == -1:
-            break
-        if element == 1:
-            crates_hit += 1
+        for element in field[pos[0], pos[1]:pos[1] + 4]:
+            if element == -1:
+                break
+            if element == 1:
+                crates_hit += 1
 
-    for element in np.flip(field[pos[0], pos[1] - 3:pos[1]]):
-        if element == -1:
-            break
-        if element == 1:
-            crates_hit += 1
+        for element in np.flip(field[pos[0], pos[1] - 3:pos[1]]):
+            if element == -1:
+                break
+            if element == 1:
+                crates_hit += 1
     features.append(relative(max_crate_hit, crates_hit))
 
     return np.array(features)
@@ -408,6 +391,46 @@ def state_to_features(game_state: dict) -> np.array:
 
 def relative(max_dist, dist):
     return (max_dist - dist) / max_dist
+
+
+def in_danger(pos, bombs, field):
+    danger_zone = []
+    # check if crate or wall is next to us
+    if field[pos[0], pos[1]] == -1 or field[pos[0], pos[1]] == 1:
+        return 0
+
+    for b in bombs:
+        if np.abs(pos[0] - b[0][0]) <= 3 and np.abs(pos[1] - b[0][1]) <= 3:
+            if pos[0] == b[0][0]:
+                y_pos = pos[1] - b[0][1]
+                if y_pos > 0:
+                    if np.sum(np.where(field[pos[0], b[0][1]:pos[1]] == -1)) == 0:
+                        danger_zone.append(relative(4, b[1]))
+                    else:
+                        danger_zone.append(0)
+                else:
+                    if np.sum(np.where(field[pos[0], pos[1]:b[0][1]] == -1)) == 0:
+                        danger_zone.append(relative(4, b[1]))
+                    else:
+                        danger_zone.append(0)
+            elif pos[1] == b[0][1]:
+                x_pos = pos[0] - b[0][0]
+                if x_pos > 0:
+                    if np.sum(np.where(field[b[0][0]:pos[0], pos[1]] == -1)) == 0:
+                        danger_zone.append(relative(4, b[1]))
+                    else:
+                        danger_zone.append(0)
+                else:
+                    if np.sum(np.where(field[pos[0]:b[0][0], pos[1]] == -1)) == 0:
+                        danger_zone.append(relative(4, b[1]))
+                    else:
+                        danger_zone.append(0)
+            else:
+                danger_zone.append(0)
+        else:
+            danger_zone.append(0)
+    # return level of highest danger or 0 if no bomb active
+    return np.max(danger_zone) if len(danger_zone) > 0 else 0
 
 # TODO: FEATURES
 # how many opponents / crates do we hit  -> 4 - num_hit / 4 -> relative
