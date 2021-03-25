@@ -174,7 +174,7 @@ def state_to_features(game_state: dict) -> np.array:
     pos = np.asarray(game_state['self'][3])
     coins = np.asarray(game_state['coins'])
     others = np.asarray(game_state['others'])
-
+    explosion_map = np.asarray(game_state['explosion_map'])
     # max distance -> longest distance with shortest path -> diagonal
     max_dist = cityblock((1, 1), game_state['field'].shape)
 
@@ -192,13 +192,33 @@ def state_to_features(game_state: dict) -> np.array:
 
     # distance to others
     others_dists = np.zeros(3)
+    nearest_opponent = None
     if others.shape[0] > 0:
         for i in range(len(others)):
             dist = cityblock(np.asarray(others[i, 3]), pos)
             others_dists[i] = relative(max_dist, dist)
         others_dists = np.sort(others_dists).tolist()
-    # features += others_dists
-    # TODO: direction to nearest opponent
+        nearest_opponent = others[np.argmax(others_dists)]
+    features += others_dists
+
+    opponent_dir = np.zeros(4)
+    if nearest_opponent is not None:
+        opponent_diff = pos - nearest_opponent
+        if opponent_diff[0] > 0:
+            opponent_dir[0] = opponent_diff[0]
+        else:
+            opponent_dir[1] = np.abs(opponent_diff[0])
+
+        if opponent_diff[1] > 0:
+            opponent_dir[2] = opponent_diff[1]
+        else:
+            opponent_dir[3] = np.abs(opponent_diff[1])
+        if np.sum(opponent_dir) == 0:
+            features += opponent_dir.tolist()
+        else:
+            features += (opponent_dir / np.sum(opponent_dir)).tolist()
+    else:
+        features += opponent_dir.tolist()
 
     # distance to bombs
     bomb_dists = np.zeros(4)
@@ -242,6 +262,16 @@ def state_to_features(game_state: dict) -> np.array:
     d = [0, 0, 0, 0]
     d[:len(danger_zone)] = np.sort(danger_zone)
     features += d
+
+    # Check for explosions
+    # tile to the left
+    features.append(np.abs(explosion_map[pos[0] - 1, pos[1]]))
+    # tile to the right
+    features.append(np.abs(explosion_map[pos[0] + 1, pos[1]]))
+    # tile below
+    features.append(np.abs(explosion_map[pos[0], pos[1] + 1]))
+    # tile above
+    features.append(np.abs(explosion_map[pos[0], pos[1] - 1]))
 
     # distance to nearest crate
     crate_indices = np.argwhere(field == 1)
@@ -289,7 +319,7 @@ def state_to_features(game_state: dict) -> np.array:
     else:
         features.append(0)  # set to max dist
 
-    xx = np.zeros(4)
+    coin_dir = np.zeros(4)
     if nearest_coin is not None:
         coin_diff = pos - nearest_coin
         if coin_diff[0] > 0:
