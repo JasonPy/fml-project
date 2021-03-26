@@ -2,6 +2,7 @@ import pickle
 import random
 import numpy as np
 from datetime import datetime
+from tqdm import tqdm
 
 import csv
 from collections import namedtuple, deque
@@ -42,7 +43,6 @@ GAMMA = 0.95  # discount value
 GRADIENT_CLIPPING = False
 OLD_LOSS = None
 
-
 # Custom events
 DOUBLE_KILL = "DOUBLE_KILL"
 DOUBLE_COIN = "DOUBLE_COIN"
@@ -53,6 +53,7 @@ CLOSER_TO_COIN = "CLOSER_TO_COIN"
 FURTHER_FROM_OPPONENT = "FURTHER_FROM_OPPONENT"
 FURTHER_FROM_COIN = "FURTHER_FROM_COIN"
 MODEL = "Q_value_model"
+
 
 def setup_training(self):
     """
@@ -81,10 +82,9 @@ def setup_training(self):
     self.writer = SummaryWriter(
         f'C:/Users/Jason/OneDrive/Master/1. Semester/FML - Fundamentals of Machine Learning/Exercises/Final Project/fml-project/agent_code/models/{self.model_name}/tensorboard')
 
-
     # load pre-collected training data
     if USE_TRAIN_SET:
-        pre_train_agent(self, TRAIN_FILE, 5000, mini_batch_gradient_descent)
+        pre_train_agent(self, TRAIN_FILE, 40000, mini_batch_gradient_descent) # mini_batch_gradient_descent
 
 
 def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_state: dict, events: List[str]):
@@ -295,7 +295,7 @@ def reset_events(self):
     self.event_map = dict.fromkeys(self.event_map, 0)
 
 
-def stochastic_gradient_descent(self, states, actions, next_states, rewards, alpha=0.0001, epochs=10000):
+def stochastic_gradient_descent(self, states, actions, next_states, rewards, alpha=0.0001, epochs=10):
     # train for each action a model with SGD
     for action in Action:
         mask_of_action = (actions == action.value)
@@ -347,14 +347,12 @@ def mini_batch_gradient_descent(self, states, actions, next_states, rewards, alp
                 d_beta = (alpha / np.sum(mask_of_action)) * np.sum((states_for_action * y).T, axis=1)
 
                 if GRADIENT_CLIPPING:
+                    d_beta = np.where(d_beta < -1, -1, d_beta)
+                    d_beta = np.where(d_beta > 1, 1, d_beta)
                     # gradient clipping
-                    if d_beta < -1:
-                        d_beta = -1
-                    elif d_beta > 1:
-                        d_beta = 1
 
                 # store loss for tensorboard plot
-                d_beta_array[i] = d_beta
+                d_beta_array[i] = np.average(y)
                 # update the weights
                 beta += d_beta
 
@@ -381,7 +379,8 @@ def mini_batch_gradient_descent(self, states, actions, next_states, rewards, alp
         'BOMB': current_loss[5],
     }, self.number_of_epoch)
 
-    self.writer.add_scalars('Loss', np.average(current_loss), self.number_of_epoch)
+    a = np.average(current_loss)
+    self.writer.add_scalar('Loss', np.average(current_loss), self.number_of_epoch)
 
 
 def td_q_learning(self, next_state, reward, gamma=GAMMA):
@@ -447,9 +446,9 @@ def pre_train_agent(self, file, iterations, gd_method):
     old_state_features = old_state_features
     new_state_features = new_state_features
 
-    for i in range(iterations):
-        gd_method(self, old_state_features, actions, new_state_features, rewards)
-        print(f"{i}/{iterations}")
+    for i in tqdm(range(iterations)):
+        self.number_of_epoch += 1
+        gd_method(self, old_state_features, actions, new_state_features, rewards, epochs=1) # epochs=1 for mini batch
     save_model(self, f"../models/linear-Q-value-pre-trained-model-{self.datetime}.pt")
 
 
