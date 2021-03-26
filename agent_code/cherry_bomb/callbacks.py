@@ -5,7 +5,6 @@ import numpy as np
 from scipy.spatial.distance import cityblock
 
 ACTIONS = ['UP', 'RIGHT', 'DOWN', 'LEFT', 'WAIT', 'BOMB']
-TRANSFORMER = None
 
 # hyperparameters / training config
 EPSILON_STRATEGY = "GREEDY_DECAY_EXPONENTIAL"  # GREEDY_DECAY_LINEAR / GREEDY
@@ -36,13 +35,7 @@ def setup(self):
     self.number_of_features = 1464
 
     # load transformer if feature selection has already been done
-    if os.path.isfile("../transformers/pca_tform.pt"):
-        self.logger.info("Load and set transformer.")
-        with open("../transformers/pca_tform.pt", "rb") as file:
-            global TRANSFORMER
-            TRANSFORMER = pickle.load(file)
-
-        self.number_of_features = TRANSFORMER.n_components_
+    # are not using a transformer anymore since dimensionality reduction does not work here, too complex
 
     if self.train:
         self.logger.info("Entering training mode.")
@@ -286,12 +279,6 @@ def state_to_features(game_state: dict) -> np.array:
     else:
         features.append(max_dist + 1)  # set to max dist
 
-    # apply feature transform
-    if TRANSFORMER:
-        return TRANSFORMER.transform(np.concatenate((state_as_features, np.array(features))).reshape(1, -1))
-    else:
-        return np.concatenate((state_as_features, np.array(features)))
+    # no feature transform is used here
+    return np.concatenate((state_as_features, np.array(features)))
 
-
-def get_transformer():
-    return TRANSFORMER

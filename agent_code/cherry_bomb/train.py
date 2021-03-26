@@ -14,7 +14,10 @@ from scipy.spatial.distance import cityblock
 from agent_code.training_data.train_data_utils import read_train_data, read_h5f, read_rows_h5f
 import events as e
 
-from .callbacks import state_to_features, get_transformer
+from .callbacks import state_to_features
+import os
+import torch
+from torch.utils.tensorboard import SummaryWriter
 
 
 # assign each action e scalar value
@@ -36,6 +39,8 @@ TRANSITION_HISTORY_SIZE = 4096  # keep last transitions
 USE_TRAIN_SET = True  # use training set for pre-learning
 TRAIN_FILE = "../training_data/h5f_train_data.h5"
 GAMMA = 0.95  # discount value
+GRADIENT_CLIPPING = False
+OLD_LOSS = None
 
 
 # Custom events
@@ -47,7 +52,7 @@ CLOSER_TO_OPPONENT = "CLOSER_TO_OPPONENT"
 CLOSER_TO_COIN = "CLOSER_TO_COIN"
 FURTHER_FROM_OPPONENT = "FURTHER_FROM_OPPONENT"
 FURTHER_FROM_COIN = "FURTHER_FROM_COIN"
-
+MODEL = "Q_value_model"
 
 def setup_training(self):
     """
@@ -59,15 +64,23 @@ def setup_training(self):
     """
 
     self.transitions = deque(maxlen=TRANSITION_HISTORY_SIZE)
-    self.event_map = dict.fromkeys([e.KILLED_OPPONENT, e.COIN_COLLECTED], 0)
+    self.event_map = dict.fromkeys([e.KILLED_OPPONENT, e.COIN_COLLECTED, e.INVALID_ACTION, e.BOMB_DROPPED], 0)
     self.reward_per_epoch = 0
     self.number_of_epoch = 0
     self.last_survivor = False
 
     # prepare output files
     self.datetime = datetime.now().strftime("%m-%d-%Y-%H-%M-%S")
-    self.csv_rewards = f"./logs/rewards_{self.datetime}.csv"
-    self.csv_actions = f"./logs/actions_{self.datetime}.csv"
+    # self.csv_rewards = f"./logs/rewards_{self.datetime}.csv"
+    # self.csv_actions = f"./logs/actions_{self.datetime}.csv"
+    # self.csv_loss = f"./logs/loss_{self.datetime}.csv"
+    # self.csv_steps = f"./logs/steps_{self.datetime}.csv"
+
+    self.model_name = MODEL + "_" + datetime.now().strftime('%d-%m_%H-%M')
+    os.mkdir('../models/' + self.model_name)
+    self.writer = SummaryWriter(
+        f'C:/Users/Jason/OneDrive/Master/1. Semester/FML - Fundamentals of Machine Learning/Exercises/Final Project/fml-project/agent_code/models/{self.model_name}/tensorboard')
+
 
     # load pre-collected training data
     if USE_TRAIN_SET:
@@ -111,7 +124,7 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
         old_game_state), self_action, state_to_features(new_game_state), rewards))
 
     self.reward_per_epoch += rewards
-    append_data_to_csv(self.csv_actions, self.number_of_epoch, events)
+    # append_data_to_csv(self.csv_actions, self.number_of_epoch, events)
 
 
 def end_of_round(self, last_game_state: dict, last_action: str, events: List[str]):
@@ -140,7 +153,20 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
     save_model(self, f"../models/my-saved-model-{self.datetime}.pt")
 
     # save rewards in csv
-    append_data_to_csv(self.csv_rewards, self.number_of_epoch, self.reward_per_epoch)
+    # append_data_to_csv(self.csv_rewards, self.number_of_epoch, self.reward_per_epoch)
+    # append_data_to_csv(self.csv_steps, self.number_of_epoch, last_game_state["steps"])
+
+    self.writer.add_scalar("Rewards", self.reward_per_epoch, self.number_of_epoch)
+
+    self.writer.add_scalars('Events', {
+        'invalid_actions': self.event_map[e.INVALID_ACTION],
+        'coins_collected': self.event_map[e.COIN_COLLECTED],
+        'bombs dropped': self.event_map[e.BOMB_DROPPED],
+    }, self.number_of_epoch)
+
+    self.writer.add_scalar("Epsilon", self.epsilon(self.number_of_epoch), self.number_of_epoch)
+    self.writer.add_scalar("Steps per epoch", last_game_state["step"], self.number_of_epoch)
+
     self.number_of_epoch += 1
 
     # reset custom events
@@ -266,6 +292,7 @@ def get_custom_events(self, old_game_state: dict, new_game_state: dict) -> List[
 def reset_events(self):
     self.reward_per_epoch = 0
     self.last_survivor = False
+    self.event_map = dict.fromkeys(self.event_map, 0)
 
 
 def stochastic_gradient_descent(self, states, actions, next_states, rewards, alpha=0.0001, epochs=10000):
@@ -297,6 +324,8 @@ def mini_batch_gradient_descent(self, states, actions, next_states, rewards, alp
         next_states = next_states[batch_indices, :]
         rewards = rewards[batch_indices]
 
+        current_loss = np.zeros(6)
+
     for action in Action:
         mask_of_action = (actions == action.value)
 
@@ -309,15 +338,50 @@ def mini_batch_gradient_descent(self, states, actions, next_states, rewards, alp
             y_t = td_q_learning(self, next_states_for_action, rewards_for_action, GAMMA)
             beta = self.model[:, action.value]
 
+            d_beta_array = np.zeros(epochs)
+            d_beta = 0
             for i in range(epochs):
                 y_pred = np.matmul(states_for_action, beta)
                 # calculate the derivative of the loss function with respect to beta
                 y = (y_t - y_pred).reshape(y_t.shape[0], 1)
                 d_beta = (alpha / np.sum(mask_of_action)) * np.sum((states_for_action * y).T, axis=1)
 
+                if GRADIENT_CLIPPING:
+                    # gradient clipping
+                    if d_beta < -1:
+                        d_beta = -1
+                    elif d_beta > 1:
+                        d_beta = 1
+
+                # store loss for tensorboard plot
+                d_beta_array[i] = d_beta
                 # update the weights
                 beta += d_beta
+
+            current_loss[action.value] = np.average(d_beta_array)
+
+            # append_data_to_csv(self.loss_csv, self.number_of_epoch, d_beta)
             self.model[:, action.value] = beta
+
+    # tensorboard plots
+    global OLD_LOSS
+
+    if OLD_LOSS is not None:
+        indices_of_missing_actions = np.argwhere(current_loss == 0)
+        current_loss[indices_of_missing_actions] = OLD_LOSS[indices_of_missing_actions]
+
+    OLD_LOSS = current_loss
+
+    self.writer.add_scalars('Loss per action', {
+        'UP': current_loss[0],
+        'RIGHT': current_loss[1],
+        'DOWN': current_loss[2],
+        'LEFT': current_loss[3],
+        'WAIT': current_loss[4],
+        'BOMB': current_loss[5],
+    }, self.number_of_epoch)
+
+    self.writer.add_scalars('Loss', np.average(current_loss), self.number_of_epoch)
 
 
 def td_q_learning(self, next_state, reward, gamma=GAMMA):
@@ -379,13 +443,14 @@ def save_model(self, file_name):
 def pre_train_agent(self, file, iterations, gd_method):
     rewards, actions, old_state_features, new_state_features = read_h5f(file, "coin_collect_data")
 
-    old_state_features = get_transformer().transform(standardize(old_state_features))
-    new_state_features = get_transformer().transform(standardize(new_state_features))
+    # TODO: standardize?
+    old_state_features = old_state_features
+    new_state_features = new_state_features
 
     for i in range(iterations):
         gd_method(self, old_state_features, actions, new_state_features, rewards)
         print(f"{i}/{iterations}")
-    save_model(self, f"../models/pre-trained-model-{self.datetime}.pt")
+    save_model(self, f"../models/linear-Q-value-pre-trained-model-{self.datetime}.pt")
 
 
 def standardize(X):
