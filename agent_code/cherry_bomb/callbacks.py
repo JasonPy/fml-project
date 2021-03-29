@@ -15,7 +15,7 @@ SOFTMAX = False  # define whether the argmax or the softmax is used during train
 TAU = 5  # param for softmax policy
 
 MAX_GAME_STEPS = 401
-NUMBER_EPISODES = 10000
+NUMBER_EPISODES = 650000
 
 # external file locations
 MODEL = "../models/pretrain_v"
@@ -37,7 +37,7 @@ def setup(self):
     :param self: This object is passed to all callbacks and you can set arbitrary values.
     """
     self.number_of_features = 39
-    self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    self.device = torch.device("cpu")
 
     if self.train:
         self.logger.info("Entering training mode.")
@@ -60,9 +60,9 @@ def setup(self):
 
     else:
         self.logger.info("Loading model from saved state.")
-        with open("../models/qnet_0", "rb") as file:
+        with open("model", "rb") as file:
             self.model = DeepQNet(self.number_of_features, 0)
-            self.model.load_state_dict(torch.load(file))
+            self.model.load_state_dict(torch.load(file, map_location=torch.device("cpu")))
             self.model.eval()
 
 

@@ -11,7 +11,7 @@ from scipy.spatial.distance import cityblock
 from tqdm import tqdm
 
 from agent_code.training_data.train_data_utils import read_h5f
-from .callbacks import state_to_features
+from .callbacks import state_to_features, NUMBER_EPISODES
 import events as e
 
 import torch
@@ -55,7 +55,7 @@ FURTHER_FROM_COIN = "FURTHER_FROM_COIN"
 PRE_TRAIN = False
 
 # output filenames (saved in models folder)
-MODEL = "testmodel"
+MODEL = "two_hidden_layer_model"
 
 
 def setup_training(self):
@@ -68,7 +68,7 @@ def setup_training(self):
     """
 
     self.transitions = deque(maxlen=TRANSITION_HISTORY_SIZE)
-    self.event_map = dict.fromkeys([e.KILLED_OPPONENT, e.COIN_COLLECTED, e.INVALID_ACTION, e.BOMB_DROPPED], 0)
+    self.event_map = dict.fromkeys([e.KILLED_OPPONENT, e.COIN_COLLECTED, e.INVALID_ACTION, e.BOMB_DROPPED, e.CRATE_DESTROYED, e.KILLED_OPPONENT], 0)
     self.reward_per_epoch = 0
     self.number_of_epoch = 0
     self.last_survivor = False
@@ -87,10 +87,10 @@ def setup_training(self):
     self.running_loss = 0
 
     self.writer = SummaryWriter(
-        f'C:/Users/Jason/OneDrive/Master/1. Semester/FML - Fundamentals of Machine Learning/Exercises/Final Project/fml-project/agent_code/models/{self.model_name}/tensorboard')
+        f'G:/Master Studium/FML-project/fml-project/agent_code/models/{self.model_name}/tensorboard')
 
     if PRE_TRAIN:
-        pre_train_agent(self, "../training_data/h5f_crate_train_data.h5", 1000000)
+        pre_train_agent(self, "../training_data/h5f_full_train_data.h5", 1000000)
 
 
 def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_state: dict, events: List[str]):
@@ -168,7 +168,8 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
         last_game_state), last_action, None, reward))
 
     # Store the model
-    save_model(self, f"../models/{self.model_name}/model", f"../models/{self.model_name}/target")
+    if self.number_of_epoch % 100000 or self.number_of_epoch == NUMBER_EPISODES:
+        save_model(self, f"../models/{self.model_name}/model", f"../models/{self.model_name}/target")
 
     self.writer.add_scalar("Rewards", self.reward_per_epoch, self.number_of_epoch)
 
@@ -176,6 +177,8 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
         'invalid_actions': self.event_map[e.INVALID_ACTION],
         'coins_collected': self.event_map[e.COIN_COLLECTED],
         'bombs dropped': self.event_map[e.BOMB_DROPPED],
+        'crates destroyed' : self.event_map[e.CRATE_DESTROYED],
+        'killed opponent' : self.event_map[e.KILLED_OPPONENT]
     }, self.number_of_epoch)
 
     self.writer.add_scalar("Epsilon", self.epsilon(self.number_of_epoch), self.number_of_epoch)
@@ -421,12 +424,12 @@ def pre_train_agent(self, file, iterations):
             self.update_step = 0
             learn(self, (tensor_states, tensor_next_states, tensor_actions, tensor_rewards))
 
-        #if self.update_step_target % UPDATE_CYCLE_TARGET == 0:
-        #    self.update_step_target = 0
-        #    update_target_net(self)
+        if self.update_step_target % UPDATE_CYCLE_TARGET == 0:
+           self.update_step_target = 0
+           update_target_net(self)
 
         self.update_step += 1
-        # self.update_step_target += 1
+        self.update_step_target += 1
 
     update_target_net(self)
-    save_model(self, file_name="../models/pretrain_crate_no_update", file_name_target="../models/pretrain_crate_no_update_target")
+    save_model(self, file_name="../models/pretrain_full_2Layer", file_name_target="../models/pretrain_full_2Layer_target")
