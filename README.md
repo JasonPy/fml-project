@@ -1,3 +1,3 @@
 # Reinforcement learning for Bomberman
 
-Training little Peter Pan to beat all his opponents!
+Training little Cherry Bomb to beat all its opponents!
